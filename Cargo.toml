@@ -1,0 +1,13 @@
+[package]
+name = "roguelike-tutorial-2018"
+version = "0.1.0-pre"
+authors = ["Lokathor <zefria@gmail.com>"]
+repository = "https://github.com/Lokathor/roguelike-tutorial-2018"
+readme = "README.md"
+keywords = ["roguelike","tutorial"]
+description = "The Summer Roguelike Tutorial (2018 edition)."
+license = "0BSD"
+publish = false
+
+[dependencies]
+dwarf-term = "0.1"

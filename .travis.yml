@@ -1,0 +1,21 @@
+language: rust
+rust:
+#  - stable
+#  - beta
+  - nightly
+matrix:
+  allow_failures:
+    - rust: nightly
+script:
+  - cargo build
+  - cargo build --no-default-features
+  - cargo build --examples
+  - cargo build --release
+  - cargo build --release --no-default-features
+  - cargo build --release --examples
+  - cargo test
+  - cargo test --no-default-features --lib
+  - cargo test --examples
+  - cargo test --release
+  - cargo test --release --no-default-features --lib
+  - cargo test --release --examples
