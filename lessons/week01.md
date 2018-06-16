@@ -183,6 +183,10 @@ and panic, since there's not much else to do right now. The only time we fail to
 open a window is if there's already a window, so since we know there's not
 already a window, we'll be fine.
 
+Also, I'm using 2 spaces per tab level. The "rust standard" is the more usual
+4-spaces, but I just use 2 because I usually seem to end up with a lot of brace
+levels.
+
 ```rust
     // Main loop
     let mut running = true;
@@ -206,7 +210,8 @@ match on the event.
         Event::WindowEvent { event: win_event, .. } => match win_event {
 ```
 
-If we have a window event we'll match on the inner window event.
+An event can be a WindowEvent or a DeviceEvent, so if we have a window event
+we'll match on that inner window event.
 
 ```rust
           WindowEvent::CloseRequested
@@ -330,3 +335,28 @@ Finally, we push out all our changes to the screen at the end of the time. The
 necessary to prevent us from going faster than the monitor refresh rate. Right
 now we don't do any real time animation, but we could, and this would keep us at
 a steady cap of 60fps.
+
+---
+
+So what's wrong so far?
+
+Well, first of all, there's a comment that says "error check" but we don't
+actually check any errors. That's just some copy paste junk that's snuck in
+there.
+
+Next, we're using `unsafe` too much. We should try to limit it down. The only
+times we actually need it are for making a new window (which does a bunch of GL
+calls) and re-drawing and flipping the window (which also does a different bunch
+of GL calls).
+
+Also, because our new keys each frame are stored in a set, if the user presses
+two or more new keys in a frame, when we move them into the held keys they might
+come out of the set in a different order, and then the user's input would be
+messed up. We might want to fix that later. Similarly, because the held_keys set
+isn't edited until after the full loop, if a key is pressed down and then
+released inside of a frame the key status can be messed up. Both of these can be
+solved by handling inputs directly in the huge match statement (maybe a bad
+plan?) or pushing events we care about into a vector so that when we go back
+over them at the end they stay in order. That also feels like a slightly bad
+idea just because it seems wasteful. I think for input we'll just have to keep
+these problems in mind as we move forward and see more of how this unfolds.
