@@ -35,13 +35,14 @@ anything else.
 
 ## How Much Should I Already Know?
 
-I assume that you've programmed before, but not necessarily written any Rust
-before.
+If you _don't_ want to do any of this yourself, you just want to glance at how
+someone might make a roguelike in rust, then you should be fine without any
+previous rust experience at all.
 
-If you're new to rust you should probably read through [The Rust Book
-(2e)](https://doc.rust-lang.org/book/second-edition/index.html) at least once,
-and in this very first lesson I'll be extra detailed about what's going on
-because it's a lot to take in at once.
+If you _do_ want to be able to do this sort of stuff yourself, you'll probably
+have to have read [The Rust Book
+(2e)](https://doc.rust-lang.org/book/second-edition/index.html) already (it's
+free), and have tried some simple rust programs of your own.
 
 # Part 1: Drawing the '@' symbol and moving it around
 
@@ -67,7 +68,7 @@ publish = false
 dwarf-term = "0.1"
 ```
 
-Some of those are probably not necessary. I don't know which. The full
+Some of those are probably not necessary. I don't honestly know which. The full
 documentation for the `Cargo.toml` file is [in the rust standard
 reference](https://doc.rust-lang.org/cargo/reference/manifest.html).
 
@@ -78,10 +79,10 @@ lib, it's best to see if there are [any
 examples](https://github.com/Lokathor/dwarf-term-rs/tree/master/examples). Oh,
 look, there are. The wonders of doing a tutorial with a lib that you wrote
 yourself at the last minute. Let's just copy that _entire thing_ into our
-project. We'll save it in `src/bin/` as `kasidan.rs` (just a random name for the
-game), and then `cargo` will automatically know to build that file into
-`kasidan.exe` just based on the file's location. So, let's type `cargo run` and
-give it a go.
+project. We'll save it in `src/bin/` as `kasidin.rs`. Kasidin is just a random
+name for the game, it could be any file name really. Once it's in the `src/bin/`
+directory, `cargo` will automatically know to build that file into a binary just
+based on the file's location. So, let's type `cargo run` and give it a go.
 
 ```
 D:\dev\roguelike-tutorial-2018>cargo run
@@ -102,7 +103,7 @@ D:\dev\roguelike-tutorial-2018>cargo run
    Compiling dwarf-term v0.1.0
    Compiling roguelike-tutorial-2018 v0.1.0-pre (file:///D:/dev/roguelike-tutorial-2018)
     Finished dev [unoptimized + debuginfo] target(s) in 10.75s
-     Running `target\debug\kasidan.exe`
+     Running `target\debug\kasidin.exe`
 ```
 
 Wewe! That's a lot of dependencies friend! The beauty of `cargo` is that we
@@ -152,7 +153,7 @@ everything from the `dwarf_term` module which is the root of that crate. The
 program, but I put a little comment line just so that when we have several
 crates and each of their use statements, it all matches up. From the standard
 library we'll want to use the `HashMap` and `HashSet` types. Actually we'll only
-use `HashSet` right away, but we'll end up with a `HashMap` too soon enough I'm
+use `HashSet` right away, but we'll end up with a `HashMap` soon enough I'm
 sure.
 
 ```rust
@@ -165,12 +166,12 @@ we get a window that's around 800x600, which is a comfortable size on a large
 screen and still doesn't go off screen even on an older monitor. Like I said
 earlier, `dwarf_term` was put out at the last minute to be available for this
 tutorial series, so the 0.1 version doesn't have configurable tilesets or
-anything. Someday.
+anything like that. Someday I'll get around to that.
 
 ```rust
 fn main() {
   unsafe {
-    let mut term = DwarfTerm::new(TILE_GRID_WIDTH, TILE_GRID_HEIGHT, "Kasidan Test").expect("WHOOPS!");
+    let mut term = DwarfTerm::new(TILE_GRID_WIDTH, TILE_GRID_HEIGHT, "Kasidin Test").expect("WHOOPS!");
     term.set_all_foregrounds(rgb32!(128, 255, 20));
     term.set_all_backgrounds(0);
 ```
@@ -342,21 +343,19 @@ So what's wrong so far?
 
 Well, first of all, there's a comment that says "error check" but we don't
 actually check any errors. That's just some copy paste junk that's snuck in
-there.
+there. I'll go fix the example at some point as well I'm sure.
 
-Next, we're using `unsafe` too much. We should try to limit it down. The only
-times we actually need it are for making a new window (which does a bunch of GL
-calls) and re-drawing and flipping the window (which also does a different bunch
-of GL calls).
+Next, we're using `unsafe` too much. We really should try to limit it down when
+we can. The only times we actually need it are for making a new window (which
+does a bunch of GL calls) and re-drawing and flipping the window (which also
+does a different bunch of GL calls). The rest of the time it's all fully safe
+code.
 
-Also, because our new keys each frame are stored in a set, if the user presses
-two or more new keys in a frame, when we move them into the held keys they might
-come out of the set in a different order, and then the user's input would be
-messed up. We might want to fix that later. Similarly, because the held_keys set
-isn't edited until after the full loop, if a key is pressed down and then
-released inside of a frame the key status can be messed up. Both of these can be
-solved by handling inputs directly in the huge match statement (maybe a bad
-plan?) or pushing events we care about into a vector so that when we go back
-over them at the end they stay in order. That also feels like a slightly bad
-idea just because it seems wasteful. I think for input we'll just have to keep
-these problems in mind as we move forward and see more of how this unfolds.
+Also, our input reading isn't the best system right now. Roguelike games are
+usually "curses-ish" with their input even if they're not using curses, so we're
+not likely to care about what keys are held over time, just which new ones were
+pressed. However, because the new keys pressed on each frame go into a set
+before they get processed by the game, they can theoretically end up getting
+processed out of order. I think we'll want to keep that in mind, and maybe
+switch to a Vec in the next lesson. Right now, up then right is the same as
+right and then up, but once there's walls to bump into we'll care.

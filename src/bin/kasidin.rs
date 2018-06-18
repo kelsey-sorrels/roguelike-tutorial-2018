@@ -16,7 +16,7 @@ const TILE_GRID_WIDTH: usize = 66;
 const TILE_GRID_HEIGHT: usize = 50;
 
 fn main() {
-  let mut term = unsafe { DwarfTerm::new(TILE_GRID_WIDTH, TILE_GRID_HEIGHT, "Kasidan Test").expect("WHOOPS!") };
+  let mut term = unsafe { DwarfTerm::new(TILE_GRID_WIDTH, TILE_GRID_HEIGHT, "Kasidin Test").expect("WHOOPS!") };
   term.set_all_foregrounds(rgb32!(128, 255, 20));
   term.set_all_backgrounds(0);
 
