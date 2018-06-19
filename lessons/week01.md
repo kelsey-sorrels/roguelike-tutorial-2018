@@ -28,21 +28,37 @@ So, really, why Rust? Because it's like C but without the crufty nonsense.
 (Instead, you get a totally different pile of nonsense knocking at your door.)
 However, you _also_ get a nifty type system that's familiar to Haskell
 programmers (and ML programmers in general, I'm told). You also get doc tests,
-which are a super neat way to merge unit testing and documentation. Most
-importantly you get a nice and modern build system and package ecosystem,
-instead of trying to futz about with make or cmake or visual studio settings or
-anything else.
+which are a super neat way to merge unit testing and documentation (your
+examples in the docs don't go out of date). Most importantly you get a nice and
+modern build system and package ecosystem, instead of trying to futz about with
+make or cmake or visual studio project settings or anything else like that.
 
 ## How Much Should I Already Know?
 
-If you _don't_ want to do any of this yourself, you just want to glance at how
-someone might make a roguelike in rust, then you should be fine without any
-previous rust experience at all.
+If you _don't_ want to actually do any of this yourself then you should be fine
+without any previous rust experience at all. Feel free to just glance through at
+how things kinda work if you don't want to start in on a whole new programming
+language.
 
-If you _do_ want to be able to do this sort of stuff yourself, you'll probably
-have to have read [The Rust Book
-(2e)](https://doc.rust-lang.org/book/second-edition/index.html) already (it's
-free), and have tried some simple rust programs of your own.
+If you _do_ want to be able to do this sort of stuff yourself, you'll have to
+have already read [The Rust Book (2nd
+Edition)](https://doc.rust-lang.org/book/second-edition/index.html) (don't
+worry, it's free), and you'll probably want to have already written some simple
+rust programs of your own.
+
+Please note that the tutorial _will_ attempt to target the harder sorts of
+material where possible. There's little point in a tutorial that only shows you
+how to do the easy things, you could have done those yourself.
+
+## Installing The Stuff
+
+To install rust you'll wanna use the [rustup](https://rustup.rs/) tool. If
+you're on windows and you want to use the MSVC toolchain you'll also need the
+Visual Studio C++ tools, but rustup will explain all that and tell you where to
+go and such when you run it.
+
+The tutorial currently requires the _nightly_ branch of rust, but as far as I
+know we can move to stable once 1.27 is released.
 
 # Part 1: Drawing the '@' symbol and moving it around
 
@@ -205,7 +221,11 @@ into our core loop.
 ```
 
 First thing we do at the start of each frame is poll for any pending events and
-match on the event.
+match on the event. The `dwarf-term` crate actually doesn't handle events much
+at all, it just passes along your events poll closure to the actual events
+polling that [winit](https://crates.io/crates/winit) does (the window lib that
+`dwarf-term` is built on top of). So, the event handling you'll see here is the
+same as you'd use with any other `winit` program.
 
 ```rust
         Event::WindowEvent { event: win_event, .. } => match win_event {
@@ -337,9 +357,7 @@ necessary to prevent us from going faster than the monitor refresh rate. Right
 now we don't do any real time animation, but we could, and this would keep us at
 a steady cap of 60fps.
 
----
-
-So what's wrong so far?
+## So what's wrong so far?
 
 Well, first of all, there's a comment that says "error check" but we don't
 actually check any errors. That's just some copy paste junk that's snuck in
@@ -349,7 +367,7 @@ Next, we're using `unsafe` too much. We really should try to limit it down when
 we can. The only times we actually need it are for making a new window (which
 does a bunch of GL calls) and re-drawing and flipping the window (which also
 does a different bunch of GL calls). The rest of the time it's all fully safe
-code.
+code. That's an easy fix too.
 
 Also, our input reading isn't the best system right now. Roguelike games are
 usually "curses-ish" with their input even if they're not using curses, so we're
@@ -357,5 +375,6 @@ not likely to care about what keys are held over time, just which new ones were
 pressed. However, because the new keys pressed on each frame go into a set
 before they get processed by the game, they can theoretically end up getting
 processed out of order. I think we'll want to keep that in mind, and maybe
-switch to a Vec in the next lesson. Right now, up then right is the same as
-right and then up, but once there's walls to bump into we'll care.
+switch to a Vec in the next lesson. Right now, "up then right" is the same as
+"right and then up", but once there's walls to bump into we'll care. That part
+we'll fix next lesson though.
