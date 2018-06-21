@@ -11,3 +11,11 @@ publish = false
 
 [dependencies]
 dwarf-term = "0.1"
+specs = "0.11"
+
+[profile.release]
+lto = true
+debug-assertions = true
+
+[profile.bench]
+lto = true
