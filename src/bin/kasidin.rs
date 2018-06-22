@@ -46,21 +46,27 @@ impl Component for Collider {
 #[derive(Debug, Default)]
 struct KeyPressEvents(Vec<(u8, VirtualKeyCode)>);
 
+pub type Color = u32;
+pub type Tile = u8;
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Cell {
+  pub tile: Tile,
+  pub fg: Color,
+  pub bg: Color,
+}
+
 /// Info on the "camera" for the game.
 #[derive(Debug)]
 struct CameraData {
   offset: Location,
-  fgs: VecImage<u32>,
-  bgs: VecImage<u32>,
-  ids: VecImage<u8>,
+  cells: VecImage<Cell>,
 }
 impl CameraData {
   fn new(width: usize, height: usize) -> Self {
     CameraData {
       offset: Location::default(),
-      fgs: VecImage::new(width, height),
-      bgs: VecImage::new(width, height),
-      ids: VecImage::new(width, height),
+      cells: VecImage::new(width, height),
     }
   }
 }
@@ -105,13 +111,13 @@ impl<'a> System<'a> for CameraUpdateSystem {
     let the_offset = camera_data.offset;
     for loc in locations.join() {
       if *loc == (Location { x: 10, y: 10 }) {
-        camera_data.ids.get_mut((10, 10)).map(|mut_ref| *mut_ref = b'#');
+        camera_data.cells.get_mut((10, 10)).map(|mut_ref| mut_ref.tile = b'#');
         return;
       }
       // TODO: Location math ops
       // TODO: Location.as_usize() op
       let camera_position = ((loc.x + the_offset.x) as usize, (loc.y + the_offset.y) as usize);
-      camera_data.ids.get_mut(camera_position).map(|mut_ref| *mut_ref = b'@');
+      camera_data.cells.get_mut(camera_position).map(|mut_ref| mut_ref.tile = b'@');
     }
   }
 }
@@ -153,7 +159,7 @@ fn main() {
   'game: loop {
     // clear any "per frame" resource data
     world.write_resource::<KeyPressEvents>().0.clear();
-    world.write_resource::<CameraData>().ids.set_all(b' ');
+    world.write_resource::<CameraData>().cells.set_all(Cell::default());
 
     // then grab all new presses
     term.poll_events(|event| match event {
@@ -198,9 +204,11 @@ fn main() {
     // terminal ends before it's time to call `clear_draw_swap`.
     {
       let (mut fgs, mut bgs, mut ids) = term.layer_slices_mut();
-      fgs.direct_copy(&world.read_resource::<CameraData>().fgs, (0, 0));
-      bgs.direct_copy(&world.read_resource::<CameraData>().bgs, (0, 0));
-      ids.direct_copy(&world.read_resource::<CameraData>().ids, (0, 0));
+      for (x, y, cell) in world.read_resource::<CameraData>().cells.iter() {
+        fgs[(x, y)] = cell.fg;
+        bgs[(x, y)] = cell.bg;
+        ids[(x, y)] = cell.tile;
+      }
     }
 
     unsafe {
