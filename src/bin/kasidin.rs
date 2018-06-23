@@ -9,14 +9,15 @@
 extern crate dwarf_term;
 pub use dwarf_term::*;
 
-extern crate specs;
-use specs::prelude::*;
-
 // std
-use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::*;
+use std::collections::*;
+use std::ops::*;
 
 const TILE_GRID_WIDTH: usize = 66;
 const TILE_GRID_HEIGHT: usize = 50;
+
+const WALL_TILE: u8 = 13 * 16 + 11;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default, Hash)]
 struct Location {
@@ -24,101 +25,67 @@ struct Location {
   y: i32,
 }
 
-impl Component for Location {
-  type Storage = DenseVecStorage<Self>;
+impl Location {
+  fn as_usize(self) -> (usize, usize) {
+    (self.x as usize, self.y as usize)
+  }
 }
 
-#[derive(Debug, Clone, Copy, Default, Hash)]
-struct Player(u8);
-
-impl Component for Player {
-  type Storage = HashMapStorage<Self>;
-}
-
-#[derive(Debug, Clone, Copy, Default, Hash)]
-struct Collider;
-
-impl Component for Collider {
-  type Storage = NullStorage<Self>;
-}
-
-/// Holds a Vec of (player_id, key)
-#[derive(Debug, Default)]
-struct KeyPressEvents(Vec<(u8, VirtualKeyCode)>);
-
-pub type Color = u32;
-pub type Tile = u8;
-
-#[derive(Debug, Default, Clone, Copy)]
-pub struct Cell {
-  pub tile: Tile,
-  pub fg: Color,
-  pub bg: Color,
-}
-
-/// Info on the "camera" for the game.
-#[derive(Debug)]
-struct CameraData {
-  offset: Location,
-  cells: VecImage<Cell>,
-}
-impl CameraData {
-  fn new(width: usize, height: usize) -> Self {
-    CameraData {
-      offset: Location::default(),
-      cells: VecImage::new(width, height),
+impl Add for Location {
+  type Output = Self;
+  fn add(self, other: Self) -> Self {
+    Location {
+      x: self.x + other.x,
+      y: self.y + other.y,
     }
   }
 }
 
-#[derive(Debug)]
-struct PlayerInputSystem;
+#[derive(Debug, Clone, Copy)]
+struct Creature {}
 
-impl<'a> System<'a> for PlayerInputSystem {
-  type SystemData = (
-    WriteStorage<'a, Location>,
-    ReadStorage<'a, Player>,
-    ReadStorage<'a, Collider>,
-    Read<'a, KeyPressEvents>,
-  );
+#[derive(Debug, Clone, Copy)]
+enum Terrain {
+  Wall,
+  Floor,
+}
 
-  fn run(&mut self, (mut locations, players, colliders, key_press_events): Self::SystemData) {
-    for (loc, player_value) in (&mut locations, &players).join() {
-      for (key_id, key) in key_press_events.0.iter() {
-        if *key_id != player_value.0 {
-          continue;
-        } else {
-          match key {
-            VirtualKeyCode::Up => loc.y += 1,
-            VirtualKeyCode::Down => loc.y -= 1,
-            VirtualKeyCode::Left => loc.x -= 1,
-            VirtualKeyCode::Right => loc.x += 1,
-            _ => {}
-          }
+impl Default for Terrain {
+  fn default() -> Self {
+    Terrain::Wall
+  }
+}
+
+#[derive(Debug, Clone, Default)]
+struct GameWorld {
+  player_location: Location,
+  creatures: HashMap<Location, Creature>,
+  terrain: HashMap<Location, Terrain>,
+}
+
+impl GameWorld {
+  fn move_player(&mut self, delta: Location) {
+    let player_move_target = self.player_location + delta;
+    if self.creatures.contains_key(&player_move_target) {
+      // LATER: combat will go here
+    } else {
+      match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
+        Terrain::Wall => {
+          // This doesn't consume a turn.
+          return;
+        }
+        Terrain::Floor => {
+          let player = self
+            .creatures
+            .remove(&self.player_location)
+            .expect("The player wasn't where they should be!");
+          let old_creature = self.creatures.insert(player_move_target, player);
+          debug_assert!(old_creature.is_none());
+          self.player_location = player_move_target;
         }
       }
     }
-  }
-}
-
-#[derive(Debug)]
-struct CameraUpdateSystem;
-
-impl<'a> System<'a> for CameraUpdateSystem {
-  type SystemData = (WriteStorage<'a, Location>, WriteExpect<'a, CameraData>);
-
-  fn run(&mut self, (locations, mut camera_data): Self::SystemData) {
-    let the_offset = camera_data.offset;
-    for loc in locations.join() {
-      if *loc == (Location { x: 10, y: 10 }) {
-        camera_data.cells.get_mut((10, 10)).map(|mut_ref| mut_ref.tile = b'#');
-        return;
-      }
-      // TODO: Location math ops
-      // TODO: Location.as_usize() op
-      let camera_position = ((loc.x + the_offset.x) as usize, (loc.y + the_offset.y) as usize);
-      camera_data.cells.get_mut(camera_position).map(|mut_ref| mut_ref.tile = b'@');
-    }
+    // TODO: other creatures act now that the player is resolved.
   }
 }
 
@@ -127,39 +94,21 @@ fn main() {
   term.set_all_foregrounds(rgb32!(128, 255, 20));
   term.set_all_backgrounds(0);
 
-  let mut world = World::new();
-  world.register::<Location>();
-  world.register::<Player>();
-  world.register::<Collider>();
-  world.add_resource(KeyPressEvents(vec![]));
-  world.add_resource(CameraData::new(TILE_GRID_WIDTH, TILE_GRID_HEIGHT));
-
-  let mut dispatcher = DispatcherBuilder::new()
-    .with(PlayerInputSystem, "player_input", &[])
-    .with(CameraUpdateSystem, "camera_update", &["player_input"])
-    .build();
-
-  // Right now there's only a single player, but theoretically we could get
-  // other players I guess. Multi-player roguelikes are a chronic pipe dream.
-  const THE_PLAYER: u8 = 1;
-
-  // Kasidin starts at 5,5
-  world
-    .create_entity()
-    .with(Location { x: 5, y: 5 })
-    .with(Player(THE_PLAYER))
-    .with(Collider)
-    .build();
-
-  // our wall buddy starts at 10,10
-  world.create_entity().with(Location { x: 10, y: 10 }).with(Collider).build();
+  let mut game = GameWorld {
+    player_location: Location { x: 5, y: 5 },
+    creatures: HashMap::new(),
+    terrain: HashMap::new(),
+  };
+  game.creatures.insert(Location { x: 5, y: 5 }, Creature {});
+  game.terrain.insert(Location { x: 10, y: 10 }, Terrain::Wall);
 
   // Main loop
   let mut running = true;
+  let mut pending_keys = vec![];
   'game: loop {
     // clear any "per frame" resource data
-    world.write_resource::<KeyPressEvents>().0.clear();
-    world.write_resource::<CameraData>().cells.set_all(Cell::default());
+    pending_keys.clear();
+    term.set_all_ids(b' ');
 
     // then grab all new presses
     term.poll_events(|event| match event {
@@ -184,7 +133,7 @@ fn main() {
           },
           ..
         } => {
-          world.write_resource::<KeyPressEvents>().0.push((THE_PLAYER, key));
+          pending_keys.push(key);
         }
         _ => {}
       },
@@ -195,8 +144,15 @@ fn main() {
       break 'game;
     }
 
-    // dispatch the system!
-    dispatcher.dispatch(&mut world.res);
+    for key in pending_keys.drain(..) {
+      match key {
+        VirtualKeyCode::Up => game.move_player(Location { x: 0, y: 1 }),
+        VirtualKeyCode::Down => game.move_player(Location { x: 0, y: -1 }),
+        VirtualKeyCode::Left => game.move_player(Location { x: -1, y: 0 }),
+        VirtualKeyCode::Right => game.move_player(Location { x: 1, y: 0 }),
+        _ => {}
+      }
+    }
 
     // Copy our camera results to the actual terminal. The `direct_copy` method
     // uses `mem_copy` internally, so it's very fast. We put it inside a dummy
@@ -204,10 +160,30 @@ fn main() {
     // terminal ends before it's time to call `clear_draw_swap`.
     {
       let (mut fgs, mut bgs, mut ids) = term.layer_slices_mut();
-      for (x, y, cell) in world.read_resource::<CameraData>().cells.iter() {
-        fgs[(x, y)] = cell.fg;
-        bgs[(x, y)] = cell.bg;
-        ids[(x, y)] = cell.tile;
+      for (scr_x, scr_y, id_mut) in ids.iter_mut() {
+        let loc_for_this_screen_position = Location {
+          x: scr_x as i32,
+          y: scr_y as i32,
+        };
+        match game.creatures.get(&loc_for_this_screen_position) {
+          Some(ref creature) => {
+            *id_mut = b'@';
+            fgs[(scr_x, scr_y)] = rgb32!(255, 255, 255);
+          }
+          None => match game.terrain.get(&loc_for_this_screen_position) {
+            Some(Terrain::Wall) => {
+              *id_mut = WALL_TILE;
+              fgs[(scr_x, scr_y)] = rgb32!(155, 75, 0);
+            }
+            Some(Terrain::Floor) => {
+              *id_mut = b'.';
+              fgs[(scr_x, scr_y)] = rgb32!(128, 128, 128);
+            }
+            None => {
+              *id_mut = b' ';
+            }
+          },
+        }
       }
     }
 
