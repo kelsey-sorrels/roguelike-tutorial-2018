@@ -497,12 +497,12 @@ impl PCG32 {
 
 So, for now, we'll automatically pick a seed from the system time. Normally, if
 you care about your initialization being as random as possible, you _don't_ want
-to do this, because the system clock is a very low-quality randomness source.
+to do this, because the system clock is a _very_ low quality randomness source.
 You'd want to ask your OS to please give you a random number from its CSPRNG.
-We're not using `rand` so we can't easily abstract away that OS call (that's the
-best feature of `rand`). However, the default randomness quality doesn't matter,
-because later on we'll just outright let the player pick their own random seed
-if they want. Like Brogue and Minecraft and such.
+We're not using `rand` so no one has abstracted way the OS differences there for
+us (that's the best feature of `rand`). However, the default seed quality
+doesn't matter, because later on we'll just outright let the player pick their
+own random seed if they want. Like Brogue and Minecraft and such.
 
 ```rust
 pub fn u64_from_time() -> u64 {
