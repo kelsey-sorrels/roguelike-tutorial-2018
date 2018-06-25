@@ -11,7 +11,6 @@ pub use dwarf_term::*;
 
 // std
 use std::collections::hash_map::*;
-use std::collections::*;
 use std::ops::*;
 
 const TILE_GRID_WIDTH: usize = 66;
@@ -71,7 +70,7 @@ impl GameWorld {
     } else {
       match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
         Terrain::Wall => {
-          // This doesn't consume a turn.
+          // Accidentally bumping a wall doesn't consume a turn.
           return;
         }
         Terrain::Floor => {
@@ -85,7 +84,7 @@ impl GameWorld {
         }
       }
     }
-    // TODO: other creatures act now that the player is resolved.
+    // LATER: other creatures act now that the player is resolved.
   }
 }
 
@@ -106,11 +105,7 @@ fn main() {
   let mut running = true;
   let mut pending_keys = vec![];
   'game: loop {
-    // clear any "per frame" resource data
-    pending_keys.clear();
-    term.set_all_ids(b' ');
-
-    // then grab all new presses
+    // Grab all new presses
     term.poll_events(|event| match event {
       Event::WindowEvent { event: win_event, .. } => match win_event {
         WindowEvent::CloseRequested
@@ -154,10 +149,6 @@ fn main() {
       }
     }
 
-    // Copy our camera results to the actual terminal. The `direct_copy` method
-    // uses `mem_copy` internally, so it's very fast. We put it inside a dummy
-    // scope so that the image slices all go away and the mutable borrow on the
-    // terminal ends before it's time to call `clear_draw_swap`.
     {
       let (mut fgs, mut bgs, mut ids) = term.layer_slices_mut();
       for (scr_x, scr_y, id_mut) in ids.iter_mut() {

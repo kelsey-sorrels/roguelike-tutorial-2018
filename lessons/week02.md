@@ -1,122 +1,235 @@
 # Week 02
 
+FIRST THINGS FIRST. If you're doing the demo from last time, please use `cargo
+update`. I've put out a `0.1.1` version of `dwarf_term`, which fixes two
+different bugs that appeared when people started trying things out.
+
 # Part 02: A Static Dungeon
 
 So, the `'@'` moves anywhere we like. He is unconstrained, but by being able to
 do anything, he also has nothing to do. Let's give him some limits.
 
 First we will make a static dungeon shape, and then in the next part will we
-make random dungeon shapes. Also, we will make a dungeon that is _bigger_ than
-our screen's display area, so that we are forced to develop a concept of a
-scrolling view of the dungeon.
+make random dungeon shapes.
 
-At the behest of a friendly imp we'll be doing this whole game using an [Entity Component System](https://en.wikipedia.org/wiki/Entity%E2%80%93component%E2%80%93system). In Rust that means that we want to be using a lib called [specs](https://crates.io/crates/specs/). Just add that to our `Cargo.toml` file's dependency section...
+Let's start putting some data types to this. First we'll adjust our std imports.
 
-```toml
-[dependencies]
-dwarf-term = "0.1"
-specs = "0.11"
+```rust
+use std::collections::hash_map::*;
+use std::ops::*;
 ```
 
-And give that a `cargo build` so that `cargo` fetches it for us...
+The stuff in `std::ops` is mostly for operator overloading.
 
-```
-D:\dev\roguelike-tutorial-2018>cargo build
-    Updating registry `https://github.com/rust-lang/crates.io-index`
- Downloading specs v0.11.2
- Downloading mopa v0.2.2
- Downloading hibitset v0.5.0
- Downloading derivative v1.0.0
- Downloading shred v0.7.0
- Downloading tuple_utils v0.2.0
- Downloading crossbeam v0.3.2
- Downloading shrev v1.0.1
- Downloading fnv v1.0.6
- Downloading shred-derive v0.5.0
- Downloading atom v0.3.5
- Downloading syn v0.10.8
- Downloading quote v0.3.15
- Downloading itertools v0.5.10
- Downloading unicode-xid v0.0.4
- Downloading fxhash v0.2.1
- Downloading smallvec v0.6.2
- Downloading parking_lot v0.5.5
- Downloading owning_ref v0.3.3
- Downloading parking_lot_core v0.2.14
- Downloading stable_deref_trait v1.1.0
- Downloading syn v0.11.11
- Downloading synom v0.11.3
-   Compiling winapi v0.3.5
-   Compiling nodrop v0.1.12
-   Compiling memoffset v0.2.1
-   Compiling scopeguard v0.3.3
-   Compiling rayon-core v1.4.0
-   Compiling smallvec v0.6.2
-   Compiling stable_deref_trait v1.1.0
-   Compiling either v1.5.0
-   Compiling quote v0.3.15
-   Compiling unicode-xid v0.0.4
-   Compiling byteorder v1.2.3
-   Compiling atom v0.3.5
-   Compiling mopa v0.2.2
-   Compiling fnv v1.0.6
-   Compiling crossbeam v0.3.2
-   Compiling tuple_utils v0.2.0
-   Compiling crossbeam-utils v0.2.2
-   Compiling num_cpus v1.8.0
-   Compiling arrayvec v0.4.7
-   Compiling owning_ref v0.3.3
-   Compiling synom v0.11.3
-   Compiling itertools v0.5.10
-   Compiling fxhash v0.2.1
-   Compiling syn v0.10.8
-   Compiling syn v0.11.11
-   Compiling crossbeam-epoch v0.3.1
-   Compiling crossbeam-deque v0.2.0
-   Compiling shred-derive v0.5.0
-   Compiling derivative v1.0.0
-   Compiling rand v0.4.2
-   Compiling winit v0.13.1
-   Compiling glutin v0.15.0
-   Compiling parking_lot_core v0.2.14
-   Compiling parking_lot v0.5.5
-   Compiling rayon v1.0.1
-   Compiling dwarf-term v0.1.0
-   Compiling shrev v1.0.1
-   Compiling hibitset v0.5.0
-   Compiling shred v0.7.0
-   Compiling specs v0.11.2
-   Compiling roguelike-tutorial-2018 v0.1.0-pre (file:///D:/dev/roguelike-tutorial-2018)
-    Finished dev [unoptimized + debuginfo] target(s) in 28.11s
+```rust
+#[derive(Debug, Clone, Default)]
+struct GameWorld {
+  player_location: Location,
+  creatures: HashMap<Location, Creature>,
+  terrain: HashMap<Location, Terrain>,
+}
 ```
 
-Wow, that's kinda a lot. You might note that it even rebuilt some of the crates
-we already had built, now that it's building more things together at once. Heck,
-since we're already editing the `Cargo.toml` file we might as well turn on
-Link-time Optimization for the `release` and `bench` profiles. Also, we'll turn
-on `debug-assertions` for the `release` profile for now, just to make sure we're
-not hitting anything weird. We can turn that back off later of course.
+A `GameWorld` has a player_location, some creatures, and some terrain. Seems
+good enough for an `'@'` and at least one wall tile.
 
-```toml
-[profile.release]
-lto = true
-debug-assertions = true
+```rust
+#[derive(Debug, Clone, Copy)]
+struct Creature {}
 
-[profile.bench]
-lto = true
+#[derive(Debug, Clone, Copy)]
+enum Terrain {
+  Wall,
+  Floor,
+}
+
+impl Default for Terrain {
+  fn default() -> Self {
+    Terrain::Wall
+  }
+}
 ```
 
-Now, `cargo` won't know on its own to delete the old build stuff we won't be
-using any more now that we've got these new settings in place, so we'll throw
-out a quick `cargo clean && cargo build`,
+We don't actually have anything to say about what makes up a `Creature`, so we
+say nothing at all. The `Terrain` is either a Wall or Floor, and we'll even say
+that the default Terrain is a Wall tile. A lot of stuff in rust uses the
+`Default` trait, so you should try to implement it as often as it makes sense
+for a type. Unfortunately, you can't derive the default of an enum, so you have
+to write it out.
 
-```
-   [all sorts of package versions cut for space]
-   Compiling roguelike-tutorial-2018 v0.1.0-pre (file:///D:/dev/roguelike-tutorial-2018)
-    Finished dev [unoptimized + debuginfo] target(s) in 16.57s
+```rust
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default, Hash)]
+struct Location {
+  x: i32,
+  y: i32,
+}
+
+impl Location {
+  fn as_usize(self) -> (usize, usize) {
+    (self.x as usize, self.y as usize)
+  }
+}
+
+impl Add for Location {
+  type Output = Self;
+  fn add(self, other: Self) -> Self {
+    Location {
+      x: self.x + other.x,
+      y: self.y + other.y,
+    }
+  }
+}
 ```
 
-TODO: make a static map
+A `Location`, for now, is just a 2d point. We'll add z later on. The `Add` trait
+lets us do `a + b` with the Location type.
+
+Now we just change it so that when the player pressed an arrow key we tell the
+game to move the player. That old input system was not good, so we'll just
+listen for key presses for now, ignoring if a key is being held down during
+other keys or not.
+
+```rust
+  // Main loop
+  let mut running = true;
+  let mut pending_keys = vec![];
+  'game: loop {
+```
+
+And once we've got all out inputs gathered we'll dispatch on them one at a time.
+
+```rust
+    for key in pending_keys.drain(..) {
+      match key {
+        VirtualKeyCode::Up => game.move_player(Location { x: 0, y: 1 }),
+        VirtualKeyCode::Down => game.move_player(Location { x: 0, y: -1 }),
+        VirtualKeyCode::Left => game.move_player(Location { x: -1, y: 0 }),
+        VirtualKeyCode::Right => game.move_player(Location { x: 1, y: 0 }),
+        _ => {}
+      }
+    }
+```
+
+Okay, so we're kinda pushing off the real work until later... Let's keep going
+with stuff in the main loop though.
+
+Once we've got all the keys processed we need to draw what the world looks like
+now.
+
+```rust
+    {
+      let (mut fgs, mut bgs, mut ids) = term.layer_slices_mut();
+      for (scr_x, scr_y, id_mut) in ids.iter_mut() {
+        let loc_for_this_screen_position = Location {
+          x: scr_x as i32,
+          y: scr_y as i32,
+        };
+        match game.creatures.get(&loc_for_this_screen_position) {
+          Some(ref creature) => {
+            *id_mut = b'@';
+            fgs[(scr_x, scr_y)] = rgb32!(255, 255, 255);
+          }
+          None => match game.terrain.get(&loc_for_this_screen_position) {
+            Some(Terrain::Wall) => {
+              *id_mut = WALL_TILE;
+              fgs[(scr_x, scr_y)] = rgb32!(155, 75, 0);
+            }
+            Some(Terrain::Floor) => {
+              *id_mut = b'.';
+              fgs[(scr_x, scr_y)] = rgb32!(128, 128, 128);
+            }
+            None => {
+              *id_mut = b' ';
+            }
+          },
+        }
+      }
+    }
+```
+
+So to start, we grab all the layers of the `DwarfTerm`. It's in three layers
+that each hold one value instead of one layer that holds three values per cell
+because that's how the textures get uploaded to opengl. They're all the same
+size, so if we iterate one we can just use the same position to write to the
+other two as well. For each camera location, we convert that into world
+coordinates, then check if there's a creature there, and if there is we draw
+that, otherwise we draw the terrain there. If there's neither there we just
+clear the cell (this way our camera doesn't have to be locked at the edges of
+the map and can drift into the void safely). We'll have to adjust this once we
+do field of view things, but for now the player will have perfect knowledge of
+the game world.
+
+Now we have to go back and _actually fill in_ our movement code.
+
+```rust
+impl GameWorld {
+  fn move_player(&mut self, delta: Location) {
+    let player_move_target = self.player_location + delta;
+    if self.creatures.contains_key(&player_move_target) {
+      // LATER: combat will go here
+    } else {
+      match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
+        Terrain::Wall => {
+          // Accidentally bumping a wall doesn't consume a turn.
+          return;
+        }
+        Terrain::Floor => {
+          let player = self
+            .creatures
+            .remove(&self.player_location)
+            .expect("The player wasn't where they should be!");
+          let old_creature = self.creatures.insert(player_move_target, player);
+          debug_assert!(old_creature.is_none());
+          self.player_location = player_move_target;
+        }
+      }
+    }
+    // LATER: other creatures act now that the player is resolved.
+  }
+}
+```
+
+That's... a lot. Also, we're doing some very rust specific jiggery hackery.
+
+So to move the player, we need the game world and a location delta to move by.
+Any sort of rule that the player can only move 1 tile per step? That's in the
+hands of the caller as far as this code is concerned. We'll add the player's
+current location and the delta to compute where they're trying to move to.
+
+First, we check if there is a creature there. If there is one, we would do an
+attack, but since we don't have other creatures or combat rules yet we'll just
+leave a note.
+
+Then, we look up what terrain is at the location that the player is trying to
+step to. Since we've only got a HashMap for terrain, and since we're only going
+to put one map tile into it, we'll look up the entry and then the
+`.or_insert(Terrain::Floor)` part will make there be a floor entry there if we
+didn't find anything at all. So now we know we're _always_ gonna have Wall or
+Floor, so we match on that.
+
+If there's a wall, you can't go there. We return without taking up a turn. If
+there's a floor, we take the player out of where they are, and put them into the
+new location. We also update the player's current location in the game data. Why
+are we storing the player's location information in two places at once? Isn't
+that error prone? Yes, it is, but it also makes it easy to check the player's
+location, which we're gonna be doing a lot I think. We can take that out later
+if we need to.
+
+Finally, now that the player has performed a turn, we'd give a turn to all the
+other creatures. However, we have no other creatures, so that's it. Now we just
+have to populate our world.
+
+```rust
+  let mut game = GameWorld {
+    player_location: Location { x: 5, y: 5 },
+    creatures: HashMap::new(),
+    terrain: HashMap::new(),
+  };
+  game.creatures.insert(Location { x: 5, y: 5 }, Creature {});
+  game.terrain.insert(Location { x: 10, y: 10 }, Terrain::Wall);
+```
+
+
 
 # Part 03: A Random Dungeon
 
