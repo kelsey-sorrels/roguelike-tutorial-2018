@@ -12,21 +12,19 @@ do anything, he also has nothing to do. Let's give him some limits.
 First we will make a static dungeon shape, and then in the next part will we
 make random dungeon shapes.
 
-Let's start putting some data types to this. First we'll adjust our std imports.
+Let's start by moving stuff that isn't in the main function itself into
+`lib.rs`, because rust projects normally like to split up the library and binary
+portion of the code. This mostly involves marking a whole lot of stuff `pub`,
+since rust has private types, fields, and functions by default.
 
-```rust
-use std::collections::hash_map::*;
-use std::ops::*;
-```
-
-The stuff in `std::ops` is mostly for operator overloading.
+So let's make a type to hold our game:
 
 ```rust
 #[derive(Debug, Clone, Default)]
-struct GameWorld {
-  player_location: Location,
-  creatures: HashMap<Location, Creature>,
-  terrain: HashMap<Location, Terrain>,
+pub struct GameWorld {
+  pub player_location: Location,
+  pub creatures: HashMap<Location, Creature>,
+  pub terrain: HashMap<Location, Terrain>,
 }
 ```
 
@@ -35,10 +33,10 @@ good enough for an `'@'` and at least one wall tile.
 
 ```rust
 #[derive(Debug, Clone, Copy)]
-struct Creature {}
+pub struct Creature {}
 
 #[derive(Debug, Clone, Copy)]
-enum Terrain {
+pub enum Terrain {
   Wall,
   Floor,
 }
@@ -59,9 +57,9 @@ to write it out.
 
 ```rust
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default, Hash)]
-struct Location {
-  x: i32,
-  y: i32,
+pub struct Location {
+  pub x: i32,
+  pub y: i32,
 }
 
 impl Location {
@@ -163,7 +161,7 @@ Now we have to go back and _actually fill in_ our movement code.
 
 ```rust
 impl GameWorld {
-  fn move_player(&mut self, delta: Location) {
+  pub fn move_player(&mut self, delta: Location) {
     let player_move_target = self.player_location + delta;
     if self.creatures.contains_key(&player_move_target) {
       // LATER: combat will go here
@@ -276,10 +274,10 @@ up a lib off the shelf, but for now we're going to learn when we can.
 
 So what's a random number generator (RNG)? Well first of all they're not
 actually random, not the ones we're using. They're just hard to predict if you
-don't know the internal state, but it's still totally deterministic like the
-rest of a computer, so we're more technically using pesudo-random number
-generators (PRNG). They've got some sort of state, and then they do some math,
-and then they change their internal state and then decide on an output.
+don't know the internal state, but it's still totally deterministic like normal
+math. We're more technically using pesudo-random number generators (PRNG).
+They've got some sort of state, and then they do some math, and then they change
+their internal state and then decide on an output.
 
 ```rust
 fn very_bad_prng(state: &mut u32) -> u32 {
@@ -471,7 +469,7 @@ values, so we'll make a struct for it and give it a method and all that jazz.
 
 ```rust
 #[derive(Debug, Clone)]
-struct PCG32 {
+pub struct PCG32 {
   state: u64,
 }
 
@@ -483,7 +481,7 @@ impl Default for PCG32 {
 }
 
 impl PCG32 {
-  fn next_u32(&mut self) -> u32 {
+  pub fn next_u32(&mut self) -> u32 {
     const A: u64 = 6364136223846793005;
     const C: u64 = 1442695040888963407; // this can be any odd const
     self.state = self.state.wrapping_mul(A).wrapping_add(C);
@@ -551,7 +549,7 @@ assumes the `HashMap` deal, so we won't change that for the moment. Now the new
 method looks like this:
 
 ```rust
-  fn new(seed: u64) -> Self {
+  pub fn new(seed: u64) -> Self {
     let mut out = Self {
       player_location: Location { x: 5, y: 5 },
       creatures: HashMap::new(),
@@ -570,7 +568,7 @@ method looks like this:
   }
 ```
 
-and then of course we have this too:
+So now we take that function and write an outline:
 
 ```rust
 fn make_cellular_caves(width: usize, height: usize, gen: &mut PCG32) -> VecImage<bool> {
@@ -578,4 +576,250 @@ fn make_cellular_caves(width: usize, height: usize, gen: &mut PCG32) -> VecImage
 }
 ```
 
-Now we just fill _that part_ in.
+Okay so let's review the steps from roguebasin:
+
+1. Start with every cell being 45% likely to be on.
+2. Set the next stage at position `p` to be on if range 1 has 5 or more on, or
+   if range 2 has 0 on.
+3. Repeat step 2 five times.
+
+So first we need a way to make a 45% percent chance. Our RNG can't do that, so
+we'll need a new method or something. Let's look up how to [convert random u32
+into random
+float](https://www.google.com/search?q=convert+random+u32+into+random+float).
+Most of this is garbage telling us how to call some library in whatever
+language, but [there is a
+paper](https://www.doornik.com/research/randomdouble.pdf) on the first page that
+looks interesting. It also looks really technical. We don't need to do full
+floats, we just need to roll a number from 1 to 100, and then see if that's less
+than or equal to 45. So we'll hold off on full floats and do dice rolls. If we
+use the modulus operator we can do `x % 100` to get a number in the range
+`0..=99`, and if we add 1 we'll get `1..=100`. However, if we do that we'll
+introduce non-uniformity, so we have to discard some results and roll again if
+we get results that would make us non-uniform.
+
+**Side note on the notation:** The `..=` operator is rust's
+[RangeInclusive](https://doc.rust-lang.org/std/ops/struct.RangeInclusive.html)
+operator, and there is also `..` for the
+[Range](https://doc.rust-lang.org/std/ops/struct.Range.html) operator.
+RangeInclusive is for when you want to do things like saying that a 6-sided die
+is the range `1..=6`, or the byte values are `0..=255`, and exclusive range is
+for when you want to do something like `for i in 0..arr.len() {`. Yes, it's
+stupid that `Range` isn't called `RangeExclusive` to match `RangeInclusive`, but
+the `Range` type was made as part of 1.0, when we were a lot stupider than we
+are now, and the `RangeInclusive` type was made in 1.26, when we were almost as
+smart as we are now. If you're wondering, "now" is 1.27.
+
+So, since we have to get a range, and then decide what the upper bound is, and we
+also have to do a lot of random rolls, we'll make a pre-computed random range
+reusable.
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RandRangeInclusive32 {
+  base: u32,
+  width: u32,
+  reject: u32,
+}
+```
+
+So we will work entirely in `u32` values because it's easier that way. We've got
+the `base` value, which is what you get if `x % y` is 0, and the `width` value,
+which is the `y` part of the `x % y`, and then the `reject` value, which is the
+biggest value we can evenly fit into our target width. If you're past the reject
+value we have to roll again. The math for this is kinda fiddly, with little +1s
+and -1s, but it goes like this:
+
+```rust
+impl RandRangeInclusive32 {
+  pub fn new(range_incl: RangeInclusive<u32>) -> Self {
+    let (low, high) = range_incl.into_inner();
+    assert!(low < high, "RandRangeInclusive32 must go from low to high, got {} ..= {}", low, high);
+    let base = low;
+    let width = (high - low) + 1;
+    debug_assert!(width > 0);
+    let width_count = ::std::u32::MAX / width;
+    let reject = (width_count * width) - 1;
+    RandRangeInclusive32 { base, width, reject }
+  }
+
+  /// Lowest possible result of this range.
+  pub fn low(&self) -> u32 {
+    self.base
+  }
+
+  /// Highest possible result of this range.
+  pub fn high(&self) -> u32 {
+    self.base + (self.width - 1)
+  }
+
+  /// Converts any `u32` into `Some(val)` if the input can be evenly placed
+  /// into range, or `None` otherwise.
+  pub fn convert(&self, roll: u32) -> Option<u32> {
+    if roll > self.reject {
+      None
+    } else {
+      Some(self.base + (roll % self.width))
+    }
+  }
+}
+```
+
+Now, that seems error prone, so we'll write a test to go through every single `u32` value and check what we get.
+
+```rust
+#[test]
+#[ignore]
+pub fn range_range_inclusive_32_sample_validity_test_d6() {
+  let the_range = RandRangeInclusive32::new(1..=6);
+  let mut outputs: [u32; 7] = [0; 7];
+  // 0 to one less than max
+  for u in 0..::std::u32::MAX {
+    let opt = the_range.convert(u);
+    match opt {
+      Some(roll) => outputs[roll as usize] += 1,
+      None => outputs[0] += 1,
+    };
+  }
+  // max
+  let opt = the_range.convert(::std::u32::MAX);
+  match opt {
+    Some(roll) => outputs[roll as usize] += 1,
+    None => outputs[0] += 1,
+  };
+  assert!(outputs[0] < 6);
+  let ones = outputs[1];
+  assert_eq!(ones, outputs[2], "{:?}", outputs);
+  assert_eq!(ones, outputs[3], "{:?}", outputs);
+  assert_eq!(ones, outputs[4], "{:?}", outputs);
+  assert_eq!(ones, outputs[5], "{:?}", outputs);
+  assert_eq!(ones, outputs[6], "{:?}", outputs);
+}
+
+pub fn u64_from_time() -> u64 {
+  use std::time::{SystemTime, UNIX_EPOCH};
+  let the_duration = match SystemTime::now().duration_since(UNIX_EPOCH) {
+    Ok(duration) => duration,
+    Err(system_time_error) => system_time_error.duration(),
+  };
+  if the_duration.subsec_nanos() != 0 {
+    the_duration.as_secs().wrapping_mul(the_duration.subsec_nanos() as u64)
+  } else {
+    the_duration.as_secs()
+  }
+}
+```
+
+Okay, it's gonna be a really slow test, so we'll mark it as ignore, and then
+only run it when we're going over all our tests, and be sure to run it in
+release mode.
+
+```
+D:\dev\roguelike-tutorial-2018>cargo test --release -- --ignored
+    Finished release [optimized] target(s) in 6.96s
+     Running target\release\deps\roguelike_tutorial_2018-af51f147971e8dbf.exe
+
+running 1 test
+test range_range_inclusive_32_sample_validity_test_d6 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+     Running target\release\deps\kasidin-258d2a1c4b30463a.exe
+   Doc-tests roguelike-tutorial-2018
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+Alright, we're in business. Also, we'll want a way to use a generator to reroll
+until we get an output.
+
+```rust
+  pub fn roll_with(&self, gen: &mut PCG32) -> u32 {
+    loop {
+      if let Some(output) = self.convert(gen.next_u32()) {
+        return output;
+      }
+    }
+  }
+```
+
+So now we can fill our initial cells
+
+```rust
+fn make_cellular_caves(width: usize, height: usize, gen: &mut PCG32) -> VecImage<bool> {
+  let d100 = RandRangeInclusive32::new(1..=100);
+  let mut buffer_a: VecImage<bool> = VecImage::new(width, height);
+  let mut buffer_b: VecImage<bool> = VecImage::new(width, height);
+  // fill the initial buffer, all cells 45% likely.
+  for (_x,_y,mut_ref) in buffer_a.iter_mut(){
+    if d100.roll_with(gen) <= 45 {
+      *mut_ref = true;
+    }
+  }
+  unimplemented!()
+}
+```
+
+Now we need a way to count the tiles at a given range. We can define this inside
+the `make_cellular_caves` function, since it'll only be used inside that
+function.
+
+```rust
+  let range_count = |buf: &VecImage<bool>, x: usize, y: usize, range: u32| {
+    debug_assert!(range > 0);
+    let mut total = 0;
+    for y in ((y as isize - range as isize) as usize)..=(y + range as usize) {
+      for x in ((x as isize - range as isize) as usize)..=(x + range as usize) {
+        if y == 0 && x == 0 {
+          continue;
+        } else {
+          match buf.get((x, y)) {
+            Some(&b) => if b {
+              total += 1;
+            },
+            None => {
+              total += 1;
+            }
+          }
+        }
+      }
+    }
+    total
+  };
+```
+
+So there's two tricky things here. We might try to check the range of an out of
+bounds location, so we have to use the `get` method for bounds-safe checking.
+Then, even with that done, what do we do if we did go out of bounds? Well, for
+now we'll just count it as being a wall, and hope it gives good results. We'll
+see when we've got something to see.
+
+So, armed with this, we need to fill buffer b based on buffer a, and then fill
+buffer a based on buffer b, back and forth. Sounds like another inner function.
+
+```rust
+  let cave_copy = |dest: &mut VecImage<bool>, src: &VecImage<bool>| {
+    for (x, y, mut_ref) in dest.iter_mut() {
+      // TODO: this will count up some of the cells more than once, perhaps we
+      // can make this more efficient by making it more fiddly.
+      *mut_ref = range_count(src, x, y, 1) >= 5 || range_count(src, x, y, 2) <= 1;
+    }
+  };
+```
+
+and we use that
+
+```rust
+  // cave copy from A into B, then the reverse, 5 times total
+  cave_copy(&buffer_a, &mut buffer_b);
+  cave_copy(&buffer_b, &mut buffer_a);
+  cave_copy(&buffer_a, &mut buffer_b);
+  cave_copy(&buffer_b, &mut buffer_a);
+  cave_copy(&buffer_a, &mut buffer_b);
+  // the final work is now in B
+  buffer_b
+}
+```
+
