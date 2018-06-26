@@ -16,8 +16,11 @@ use roguelike_tutorial_2018::*;
 use std::collections::hash_map::*;
 use std::ops::*;
 
+const TILE_GRID_WIDTH: usize = 66;
+const TILE_GRID_HEIGHT: usize = 50;
+
 fn main() {
-  let mut term = unsafe { DwarfTerm::new(TILE_GRID_WIDTH, TILE_GRID_HEIGHT, "Kasidin Test").expect("WHOOPS!") };
+  let mut term = unsafe { DwarfTerm::new(TILE_GRID_WIDTH, TILE_GRID_HEIGHT, "Kasidin").expect("WHOOPS!") };
   term.set_all_foregrounds(rgb32!(128, 255, 20));
   term.set_all_backgrounds(0);
 
@@ -73,11 +76,15 @@ fn main() {
 
     {
       let (mut fgs, mut bgs, mut ids) = term.layer_slices_mut();
+      let offset = game.player_location - Location {
+        x: (fgs.width() / 2) as i32,
+        y: (fgs.height() / 2) as i32,
+      };
       for (scr_x, scr_y, id_mut) in ids.iter_mut() {
         let loc_for_this_screen_position = Location {
           x: scr_x as i32,
           y: scr_y as i32,
-        };
+        } + offset;
         match game.creatures.get(&loc_for_this_screen_position) {
           Some(ref creature) => {
             *id_mut = b'@';

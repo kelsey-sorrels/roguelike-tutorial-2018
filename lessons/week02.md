@@ -823,3 +823,257 @@ and we use that
 }
 ```
 
+![it-works-marty](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-01.png)
+
+Hmm, we're getting those pockets that they talked about. Ah, if we look closer
+there's an alternate ruleset that helps make smoother caves. I like the jagged
+parts and random pillars, we just want to ensure that we're connected. Looks
+like if we do a flood fill based copy at the end we can ensure that we're
+connected. If we don't get enough connected tiles, we'll just do it all again.
+
+```rust
+  'work: loop {
+    // fill the initial buffer, all cells 45% likely.
+    for (_x, _y, mut_ref) in buffer_a.iter_mut() {
+      if d100.roll_with(gen) <= 45 {
+        *mut_ref = true;
+      }
+    }
+    // cave copy from A into B, then the reverse, 5 times total
+    cave_copy(&buffer_a, &mut buffer_b);
+    cave_copy(&buffer_b, &mut buffer_a);
+    cave_copy(&buffer_a, &mut buffer_b);
+    cave_copy(&buffer_b, &mut buffer_a);
+    cave_copy(&buffer_a, &mut buffer_b);
+    // good stuff is in B, flood copy back into A
+    let copied_count = flood_copy(&buffer_b, &mut buffer_a, gen);
+    if copied_count >= (width * height) / 2 {
+      return buffer_a;
+    } else {
+      continue 'work;
+    }
+  }
+```
+
+Unfortunately, the flood copy itself is quite long.
+
+```rust
+  let flood_copy = |src: &VecImage<bool>, dest: &mut VecImage<bool>, gen: &mut PCG32| {
+    dest.set_all(true);
+    let mut copied_count = 0;
+    let start = {
+      let d_width = RandRangeInclusive32::new(0..=(width as u32));
+      let d_height = RandRangeInclusive32::new(0..=(height as u32));
+      let mut x = d_width.roll_with(gen) as usize;
+      let mut y = d_height.roll_with(gen) as usize;
+      let mut tries = 0;
+      while src[(x, y)] {
+        x = d_width.roll_with(gen) as usize;
+        y = d_height.roll_with(gen) as usize;
+        tries += 1;
+        if tries > 100 {
+          return 0;
+        }
+      }
+      (x, y)
+    };
+    let mut open_set = HashSet::new();
+    let mut closed_set = HashSet::new();
+    open_set.insert(start);
+    while !open_set.is_empty() {
+      let loc: (usize, usize) = *open_set.iter().next().unwrap();
+      open_set.remove(&loc);
+      if closed_set.contains(&loc) {
+        continue;
+      } else {
+        closed_set.insert(loc);
+      };
+      dest[loc] = false;
+      copied_count += 1;
+      if loc.0 > 1 {
+        open_set.insert((loc.0 - 1, loc.1));
+      }
+      if loc.0 < (src.width() - 1) {
+        open_set.insert((loc.0 + 1, loc.1));
+      }
+      if loc.1 > 1 {
+        open_set.insert((loc.0, loc.1 - 1));
+      }
+      if loc.1 < (src.height() - 1) {
+        open_set.insert((loc.0, loc.1 + 1));
+      }
+    }
+    copied_count
+  };
+```
+
+And turn it on...
+
+![whoops](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-02.png)
+
+Okay, not supposed to be like that for sure. There's two things wrong.
+
+1. We tried to not copy over at the edge so that the cave result will never run
+   up against the actual map bounds. That sure didn't work for the upper bounds
+2. We didn't copy the data.
+
+```rust
+      if loc.0 > 1 {
+        open_set.insert((loc.0 - 1, loc.1));
+      }
+      if loc.0 < (src.width() - 2) {
+        open_set.insert((loc.0 + 1, loc.1));
+      }
+      if loc.1 > 1 {
+        open_set.insert((loc.0, loc.1 - 1));
+      }
+      if loc.1 < (src.height() - 2) {
+        open_set.insert((loc.0, loc.1 + 1));
+      }
+```
+
+![better](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-03.png)
+
+Okay, good bounds there, but we're not reading the source.
+
+```rust
+      dest[loc] = src[loc];
+```
+
+![better](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-04.png)
+
+Nope, that's not right, that spreads too much and we just get a full copy.
+
+```rust
+      if !src[loc] {
+        dest[loc] = false;
+        copied_count += 1;
+        if loc.0 > 1 {
+          open_set.insert((loc.0 - 1, loc.1));
+        }
+        if loc.0 < (src.width() - 2) {
+          open_set.insert((loc.0 + 1, loc.1));
+        }
+        if loc.1 > 1 {
+          open_set.insert((loc.0, loc.1 - 1));
+        }
+        if loc.1 < (src.height() - 2) {
+          open_set.insert((loc.0, loc.1 + 1));
+        }
+      }
+```
+
+Whoops, something did a panic. Hmm. What could be out of bounds? Oh, right, the
+initial location picking can be out of bounds.
+
+```rust
+      let d_width = RandRangeInclusive32::new(0..=((width - 1) as u32));
+      let d_height = RandRangeInclusive32::new(0..=((height - 1) as u32));
+```
+
+Except sometimes now it hangs forever. Huh. Well, we throw in some print
+statements in to diagnose what's going on... turns out that if it copies too few
+tiles (because it copied a small pocket for example) and then resets... we just
+loop forever. Oh, right, because buffer_a was assumed to be blank. Okay so we'll
+just force it false or true.
+
+```rust
+    // fill the initial buffer, all cells 45% likely.
+    for (_x, _y, mut_ref) in buffer_a.iter_mut() {
+      *mut_ref = d100.roll_with(gen) <= 45;
+    }
+```
+
+And now we finally get results with no spare pockets.
+
+![final](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-05.png)
+
+You can even see places where there might have been pockets that didn't get
+copied into the final thing thanks to the flood_copy.
+
+![final-remix](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-06.png)
+
+## Part 03c: Scrolling Camera
+
+Now the final step is to go just a little beyond and make a camera that scrolls
+so that we can have dungeons of any size we want. First we make the dungeons 100
+by 100 (just to pick a size).
+
+![100x100](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-06.png)
+
+Then we offset the screen position by the player's position.
+
+```rust
+        let loc_for_this_screen_position = Location {
+          x: scr_x as i32 + game.player_location.x,
+          y: scr_y as i32 + game.player_location.y,
+        };
+```
+
+![100x100-whoops](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-06.png)
+
+Okay, my bad, what I of course meant to say was that we offset it by the
+player's location _minus_ half the display region (so that the player is always
+kept in the middle of the screen).
+
+```rust
+      let offset = game.player_location - Location {
+        x: (fgs.width() / 2) as i32,
+        y: (fgs.height() / 2) as i32,
+      };
+      for (scr_x, scr_y, id_mut) in ids.iter_mut() {
+        let loc_for_this_screen_position = Location {
+          x: scr_x as i32,
+          y: scr_y as i32,
+        } + offset;
+```
+
+![100x100-success](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-06.png)
+
+And let's make sure that the player always is placed on a floor tile to start. Let's add a method to `GameState`
+
+```rust
+  pub fn pick_random_floor(&mut self) -> Location {
+    let indexer = RandRangeInclusive32::new(0..=99);
+    let mut tries = 0;
+    let mut x = indexer.roll_with(&mut self.gen) as usize;
+    let mut y = indexer.roll_with(&mut self.gen) as usize;
+    let mut loc = Location { x: x as i32, y: y as i32 };
+    while self.terrain[&loc] != Terrain::Floor {
+      x = indexer.roll_with(&mut self.gen) as usize;
+      y = indexer.roll_with(&mut self.gen) as usize;
+      loc = Location { x: x as i32, y: y as i32 };
+      if tries > 5000 {
+        panic!("couldn't find a floor tile!");
+      }
+    }
+    loc
+  }
+```
+
+and then update how `new` works
+
+```rust
+  pub fn new(seed: u64) -> Self {
+    let mut out = Self {
+      player_location: Location { x: 5, y: 5 },
+      creatures: HashMap::new(),
+      terrain: HashMap::new(),
+      gen: PCG32 { state: seed },
+    };
+    let caves = make_cellular_caves(100, 100, &mut out.gen);
+    for (x, y, tile) in caves.iter() {
+      out
+        .terrain
+        .insert(Location { x: x as i32, y: y as i32 }, if *tile { Terrain::Wall } else { Terrain::Floor });
+    }
+
+    let player_start = out.pick_random_floor();
+    out.creatures.insert(player_start, Creature {});
+    out.player_location = player_start;
+
+    out
+  }
+```
+
+And there we go, random starting locations with a scrolling camera.

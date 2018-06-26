@@ -6,10 +6,8 @@ pub(crate) use dwarf_term::*;
 
 // std
 pub(crate) use std::collections::hash_map::*;
+pub(crate) use std::collections::hash_set::*;
 pub(crate) use std::ops::*;
-
-pub const TILE_GRID_WIDTH: usize = 66;
-pub const TILE_GRID_HEIGHT: usize = 50;
 
 pub const WALL_TILE: u8 = 13 * 16 + 11;
 
@@ -35,10 +33,20 @@ impl Add for Location {
   }
 }
 
+impl Sub for Location {
+  type Output = Self;
+  fn sub(self, other: Self) -> Self {
+    Location {
+      x: self.x - other.x,
+      y: self.y - other.y,
+    }
+  }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Creature {}
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terrain {
   Wall,
   Floor,
@@ -51,9 +59,7 @@ impl Default for Terrain {
 }
 
 fn make_cellular_caves(width: usize, height: usize, gen: &mut PCG32) -> VecImage<bool> {
-  let d100 = RandRangeInclusive32::new(1..=100);
-  let mut buffer_a: VecImage<bool> = VecImage::new(width, height);
-  let mut buffer_b: VecImage<bool> = VecImage::new(width, height);
+  // utilities
   let range_count = |buf: &VecImage<bool>, x: usize, y: usize, range: u32| {
     debug_assert!(range > 0);
     let mut total = 0;
@@ -82,20 +88,79 @@ fn make_cellular_caves(width: usize, height: usize, gen: &mut PCG32) -> VecImage
       *mut_ref = range_count(src, x, y, 1) >= 5 || range_count(src, x, y, 2) <= 1;
     }
   };
-  // fill the initial buffer, all cells 45% likely.
-  for (_x, _y, mut_ref) in buffer_a.iter_mut() {
-    if d100.roll_with(gen) <= 45 {
-      *mut_ref = true;
+  let flood_copy = |src: &VecImage<bool>, dest: &mut VecImage<bool>, gen: &mut PCG32| {
+    dest.set_all(true);
+    let mut copied_count = 0;
+    let start = {
+      let d_width = RandRangeInclusive32::new(0..=((width - 1) as u32));
+      let d_height = RandRangeInclusive32::new(0..=((height - 1) as u32));
+      let mut x = d_width.roll_with(gen) as usize;
+      let mut y = d_height.roll_with(gen) as usize;
+      let mut tries = 0;
+      while src[(x, y)] {
+        x = d_width.roll_with(gen) as usize;
+        y = d_height.roll_with(gen) as usize;
+        tries += 1;
+        if tries > 100 {
+          return 0;
+        }
+      }
+      (x, y)
+    };
+    let mut open_set = HashSet::new();
+    let mut closed_set = HashSet::new();
+    open_set.insert(start);
+    while !open_set.is_empty() {
+      let loc: (usize, usize) = *open_set.iter().next().unwrap();
+      open_set.remove(&loc);
+      if closed_set.contains(&loc) {
+        continue;
+      } else {
+        closed_set.insert(loc);
+      };
+      if !src[loc] {
+        dest[loc] = false;
+        copied_count += 1;
+        if loc.0 > 1 {
+          open_set.insert((loc.0 - 1, loc.1));
+        }
+        if loc.0 < (src.width() - 2) {
+          open_set.insert((loc.0 + 1, loc.1));
+        }
+        if loc.1 > 1 {
+          open_set.insert((loc.0, loc.1 - 1));
+        }
+        if loc.1 < (src.height() - 2) {
+          open_set.insert((loc.0, loc.1 + 1));
+        }
+      }
+    }
+    copied_count
+  };
+
+  let d100 = RandRangeInclusive32::new(1..=100);
+  let mut buffer_a: VecImage<bool> = VecImage::new(width, height);
+  let mut buffer_b: VecImage<bool> = VecImage::new(width, height);
+
+  'work: loop {
+    // fill the initial buffer, all cells 45% likely.
+    for (_x, _y, mut_ref) in buffer_a.iter_mut() {
+      *mut_ref = d100.roll_with(gen) <= 45;
+    }
+    // cave copy from A into B, then the reverse, 5 times total
+    cave_copy(&buffer_a, &mut buffer_b);
+    cave_copy(&buffer_b, &mut buffer_a);
+    cave_copy(&buffer_a, &mut buffer_b);
+    cave_copy(&buffer_b, &mut buffer_a);
+    cave_copy(&buffer_a, &mut buffer_b);
+    // good stuff is in B, flood copy back into A
+    let copied_count = flood_copy(&buffer_b, &mut buffer_a, gen);
+    if copied_count >= (width * height) / 2 {
+      return buffer_a;
+    } else {
+      continue 'work;
     }
   }
-  // cave copy from A into B, then the reverse, 5 times total
-  cave_copy(&buffer_a, &mut buffer_b);
-  cave_copy(&buffer_b, &mut buffer_a);
-  cave_copy(&buffer_a, &mut buffer_b);
-  cave_copy(&buffer_b, &mut buffer_a);
-  cave_copy(&buffer_a, &mut buffer_b);
-  // the final work is now in B
-  buffer_b
 }
 
 #[derive(Debug, Clone, Default)]
@@ -114,15 +179,35 @@ impl GameWorld {
       terrain: HashMap::new(),
       gen: PCG32 { state: seed },
     };
-    out.creatures.insert(Location { x: 5, y: 5 }, Creature {});
-    //out.terrain.insert(Location { x: 10, y: 10 }, Terrain::Wall);
-    let caves = make_cellular_caves(TILE_GRID_WIDTH, TILE_GRID_HEIGHT, &mut out.gen);
+    let caves = make_cellular_caves(100, 100, &mut out.gen);
     for (x, y, tile) in caves.iter() {
       out
         .terrain
         .insert(Location { x: x as i32, y: y as i32 }, if *tile { Terrain::Wall } else { Terrain::Floor });
     }
+
+    let player_start = out.pick_random_floor();
+    out.creatures.insert(player_start, Creature {});
+    out.player_location = player_start;
+
     out
+  }
+
+  pub fn pick_random_floor(&mut self) -> Location {
+    let indexer = RandRangeInclusive32::new(0..=99);
+    let mut tries = 0;
+    let mut x = indexer.roll_with(&mut self.gen) as usize;
+    let mut y = indexer.roll_with(&mut self.gen) as usize;
+    let mut loc = Location { x: x as i32, y: y as i32 };
+    while self.terrain[&loc] != Terrain::Floor {
+      x = indexer.roll_with(&mut self.gen) as usize;
+      y = indexer.roll_with(&mut self.gen) as usize;
+      loc = Location { x: x as i32, y: y as i32 };
+      if tries > 5000 {
+        panic!("couldn't find a floor tile!");
+      }
+    }
+    loc
   }
 
   pub fn move_player(&mut self, delta: Location) {
