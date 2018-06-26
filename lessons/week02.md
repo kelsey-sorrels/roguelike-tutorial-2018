@@ -999,7 +999,7 @@ Now the final step is to go just a little beyond and make a camera that scrolls
 so that we can have dungeons of any size we want. First we make the dungeons 100
 by 100 (just to pick a size).
 
-![100x100](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-06.png)
+![100x100](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-07.png)
 
 Then we offset the screen position by the player's position.
 
@@ -1010,7 +1010,7 @@ Then we offset the screen position by the player's position.
         };
 ```
 
-![100x100-whoops](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-06.png)
+![100x100-whoops](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-08.png)
 
 Okay, my bad, what I of course meant to say was that we offset it by the
 player's location _minus_ half the display region (so that the player is always
@@ -1028,7 +1028,7 @@ kept in the middle of the screen).
         } + offset;
 ```
 
-![100x100-success](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-06.png)
+![100x100-success](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week02-09.png)
 
 And let's make sure that the player always is placed on a floor tile to start. Let's add a method to `GameState`
 
