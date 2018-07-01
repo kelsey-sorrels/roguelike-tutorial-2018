@@ -1,5 +1,9 @@
 # Week 01
 
+This is the start of a tutorial that's associated with the [Roguelike Tutorial
+2018](https://www.reddit.com/r/roguelikedev/comments/8ql895/roguelikedev_does_the_complete_roguelike_tutorial/)
+project.
+
 # Part 0: Introduction Stuff
 
 ## Prior Art

@@ -1,10 +1,7 @@
 //! The main program!
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![allow(unused_imports)]
 #![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
 
 extern crate dwarf_term;
 pub use dwarf_term::*;
@@ -13,8 +10,7 @@ extern crate roguelike_tutorial_2018;
 use roguelike_tutorial_2018::*;
 
 // std
-use std::collections::hash_map::*;
-use std::ops::*;
+use std::collections::hash_set::*;
 
 const TILE_GRID_WIDTH: usize = 66;
 const TILE_GRID_HEIGHT: usize = 50;
@@ -74,8 +70,17 @@ fn main() {
       }
     }
 
+    let mut seen_set = HashSet::new();
+    ppfov(
+      (game.player_location.x, game.player_location.y),
+      25,
+      |x, y| game.terrain.get(&Location { x, y }).map(|&t| t == Terrain::Wall).unwrap_or(true),
+      |x, y| {
+        seen_set.insert((x, y));
+      },
+    );
     {
-      let (mut fgs, mut bgs, mut ids) = term.layer_slices_mut();
+      let (mut fgs, mut _bgs, mut ids) = term.layer_slices_mut();
       let offset = game.player_location - Location {
         x: (fgs.width() / 2) as i32,
         y: (fgs.height() / 2) as i32,
@@ -85,24 +90,28 @@ fn main() {
           x: scr_x as i32,
           y: scr_y as i32,
         } + offset;
-        match game.creatures.get(&loc_for_this_screen_position) {
-          Some(ref creature) => {
-            *id_mut = b'@';
-            fgs[(scr_x, scr_y)] = rgb32!(255, 255, 255);
+        if seen_set.contains(&(loc_for_this_screen_position.x, loc_for_this_screen_position.y)) {
+          match game.creatures.get(&loc_for_this_screen_position) {
+            Some(ref _creature) => {
+              *id_mut = b'@';
+              fgs[(scr_x, scr_y)] = rgb32!(255, 255, 255);
+            }
+            None => match game.terrain.get(&loc_for_this_screen_position) {
+              Some(Terrain::Wall) => {
+                *id_mut = WALL_TILE;
+                fgs[(scr_x, scr_y)] = rgb32!(155, 75, 0);
+              }
+              Some(Terrain::Floor) => {
+                *id_mut = b'.';
+                fgs[(scr_x, scr_y)] = rgb32!(128, 128, 128);
+              }
+              None => {
+                *id_mut = b' ';
+              }
+            },
           }
-          None => match game.terrain.get(&loc_for_this_screen_position) {
-            Some(Terrain::Wall) => {
-              *id_mut = WALL_TILE;
-              fgs[(scr_x, scr_y)] = rgb32!(155, 75, 0);
-            }
-            Some(Terrain::Floor) => {
-              *id_mut = b'.';
-              fgs[(scr_x, scr_y)] = rgb32!(128, 128, 128);
-            }
-            None => {
-              *id_mut = b' ';
-            }
-          },
+        } else {
+          *id_mut = b' ';
         }
       }
     }

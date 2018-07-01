@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 #![allow(unused_mut)]
 
 extern crate dwarf_term;
@@ -8,6 +7,9 @@ pub(crate) use dwarf_term::*;
 pub(crate) use std::collections::hash_map::*;
 pub(crate) use std::collections::hash_set::*;
 pub(crate) use std::ops::*;
+
+pub mod precise_permissive_fov;
+pub use precise_permissive_fov::*;
 
 pub const WALL_TILE: u8 = 13 * 16 + 11;
 
