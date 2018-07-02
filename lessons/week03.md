@@ -29,7 +29,7 @@ of the code that we can also look at as we fumble through.
 ### Part 04a: What Will We Build
 
 So, Field of View allows you to do some math to determine what positions
-can be seen from what other positions. There's many types of FOV you can be
+can be seen from what other positions. There's many types of FOV that can be
 used. Precise Permissive Field of View (PPFOV) has the following key properties:
 
 * **2-dimensional:** This is fine for us, since our game exists in distinct cave
@@ -106,7 +106,7 @@ as being the position for that square.
 
 ![labeled-squares](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week03-01.png)
 
-* A is (0,0), B is (0,1), C is (1,0), and D is (1,1).
+* A is (0,0), B is (1,0), C is (0,1), and D is (1,1).
 * Any time we talk about the top-left corner of (x,y), we're talking about (x,y+1)
 * Any time we talk about the bottom-right corner of (x,y), we're talking about (x+1,y)
 
@@ -382,7 +382,10 @@ impl View {
   // ...
 ```
 
-And adding a bump to a View is a little more complicated.
+And adding a bump to a View is a little more complicated. We have to do that
+stuff where we use the lists of old bumps to adjust things based on a diagram we
+didn't see. So, we'll look at what the python code does and then blindly trust
+it for now.
 
 ```rust
   // ...
@@ -413,10 +416,11 @@ And adding a bump to a View is a little more complicated.
 }
 ```
 
-Do you trust my code? You _shouldn't_. I sure don't trust my code. Let's write
+Do you trust the code? You _shouldn't_. I sure don't trust it. Let's write
 another test. Except this is some weird stuff for an algorithm that we've never
 used before, so what's good test data? That's right, we'll use the diagrams that
-we drew earlier.
+we drew earlier. We can at least cover the cases for the diagrams that we do
+have, even if we don't know how the bump lists work out.
 
 ```rust
 #[test]
@@ -810,7 +814,64 @@ where
 
 ### Part 04d: We Turn It On
 
-TODO
+Okay so to turn it on, we just have to adjust the main method to call the FOV,
+and then only draw if the location is within the FOV we saw.
+
+```rust
+    let mut seen_set = HashSet::new();
+    ppfov(
+      (game.player_location.x, game.player_location.y),
+      25,
+      |x, y| game.terrain.get(&Location { x, y }).map(|&t| t == Terrain::Wall).unwrap_or(true),
+      |x, y| {
+        seen_set.insert((x, y));
+      },
+    );
+    {
+      let (mut fgs, mut _bgs, mut ids) = term.layer_slices_mut();
+      let offset = game.player_location - Location {
+        x: (fgs.width() / 2) as i32,
+        y: (fgs.height() / 2) as i32,
+      };
+      for (scr_x, scr_y, id_mut) in ids.iter_mut() {
+        let loc_for_this_screen_position = Location {
+          x: scr_x as i32,
+          y: scr_y as i32,
+        } + offset;
+        if seen_set.contains(&(loc_for_this_screen_position.x, loc_for_this_screen_position.y)) {
+          match game.creatures.get(&loc_for_this_screen_position) {
+            Some(ref _creature) => {
+              *id_mut = b'@';
+              fgs[(scr_x, scr_y)] = rgb32!(255, 255, 255);
+            }
+            None => match game.terrain.get(&loc_for_this_screen_position) {
+              Some(Terrain::Wall) => {
+                *id_mut = WALL_TILE;
+                fgs[(scr_x, scr_y)] = rgb32!(155, 75, 0);
+              }
+              Some(Terrain::Floor) => {
+                *id_mut = b'.';
+                fgs[(scr_x, scr_y)] = rgb32!(128, 128, 128);
+              }
+              None => {
+                *id_mut = b' ';
+              }
+            },
+          }
+        } else {
+          *id_mut = b' ';
+        }
+      }
+    }
+```
+
+Wow... that's some ugly stuff. We really wanna make that Location stuff have
+some smoother transitions into and out of `(i32,i32)` tuples, or make the FOV
+use Location directly, or something. Still, it compiles.
+
+![it-turns-on](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week03-08.png)
+
+And it works!
 
 ## Part 05: Placing Enemies
 
