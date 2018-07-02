@@ -545,7 +545,8 @@ So what does `visit_coord` need? Well, almost everything we had passed to
 the offset x and offset y, along with the list of active views. Since we've got
 a thing for a direction on x and y, and a thing for an offset on x and y, we'll
 make `dx` and `dy` be `dir_x` and `dir_y`, so that it's clearer (since `dx`
-would usually "delta x" on its own). So it has an outline like this:
+would usually mean "delta x" on its own, which would be direction and offset in
+a single value). So it has an outline like this:
 
 ```rust
 fn visit_coord<VB, VE>(
@@ -641,7 +642,7 @@ So now we find the right View that this coordinate is part of.
 So... what the frickity frack? Well we pick a top left and a bottom right. Easy.
 And the minimum view index is 0 obviously, because indexes are `usize` values.
 Now we do a `loop`, because we have to keep going until either we find our
-target or run out of views to look at. Okay so far? Now for each pass of the
+target or run out of views to look at. Okay so far? Now, for each pass of the
 `loop`, we call `active_views.get(view_index)`, which uses the
 [get](https://doc.rust-lang.org/std/primitive.slice.html#method.get) method on
 slices (a Vec will automatically
