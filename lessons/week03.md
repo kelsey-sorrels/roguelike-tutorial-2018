@@ -115,46 +115,46 @@ as being the position for that square.
 
 As we scan, we maintain a list of "Views". A view has two "sight lines":
 
-* One goes from the bottom-right of the origin to some sufficiently high point
+* One starts from the bottom-right of the origin to some sufficiently high point
   on the Y-axis. This is the "steep" line.
-* One goes from the top-left of the origin to some sufficiently far point along
+* The other from the top-left of the origin to some sufficiently far point along
   the X-axis. This is the "shallow" line.
-* The relative positioning of the two lines is invariant. The ending of the
-  steep line will always be above the shallow line, and the ending of the
-  shallow line will always be below the steep line.
+* Even as a view updates, the relative positioning of the end of each line is
+  invariant. The ending of the steep line will always be above the shallow line,
+  and the ending of the shallow line will always be below the steep line.
 
 ![initial-sight-lines](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week03-02.png)
 
-In addition, each View stores a list (per line) of the squares that have blocked
+In addition, each view stores a list (per line) of the squares that have blocked
 sight and forced a view update during the scanning. These squares are called
 "bumps". We need to store the bumps because in some cases a an initial update to
 a sight line might make it intersect a previous bump, and then we would need to
 update it again.
 
-For each square, we first determine what View it is within. At first there is a
-single View, but as you'll see in a moment you can end up with more than one.
-Each View will cover a fully disjoint portion of the quadrant being scanned, so
+For each square, we first determine what view it is within. At first there is a
+single view, but as you'll see in a moment you can end up with more than one.
+Each view will cover a fully disjoint portion of the quadrant being scanned, so
 no square will be in more than one view. However, it's also possible that a
 square will be in no view at all, which indicates that some other square was "in
 front of" the square in question (relative to this FOV's origin), and so we must
 skip past it.
 
-Once we've determined what View the square lies within, we also check if the
+Once we've determined what view the square lies within, we also check if the
 square blocks vision or not. If the square _does not_ block vision then we mark
 it as seen and move on. If the square _does_ block vision, we have to determine
 in what way the square is touching our selected view, and then update that view
 accordingly.
 
-* If the square _overlaps one_ of the sight lines but not the other, it "bumps"
+* If the square _overlaps one of_ the sight lines but not the other, it "bumps"
   the sight line inward, narrowing the visible space. If the steep line is
   overlapped then we bump the steep line down, and if the shallow line is
   overlapped we bump the shallow line up.
-* If the square _overlaps both_ of the sight lines, then that view is completely
-  blocked by the square, and we remove that View from all further scanning.
-* If the square _sits between_ the two sight lines, we split the selected View
-  into two Views. To do this, we first clone the View and place the clone at the
-  very next index within our list. Then for the lower indexed View we adjust the
-  steep line down, and for the higher indexed View we adjust the shallow line
+* If the square _overlaps both of_ the sight lines, then that view is completely
+  blocked by the square, and we remove that view from all further scanning.
+* If the square _sits between_ the two sight lines, we split the selected view
+  into two views. To do this, we first clone the view and place the clone at the
+  very next index within our list. Then for the lower indexed view we adjust the
+  steep line down, and for the higher indexed view we adjust the shallow line
   up. This way, the views are always kept ordered, counter-clockwise, by the
   area that they cover.
 
@@ -169,13 +169,13 @@ And put some sight lines on the grid. Again like before, red is our shallow line
 
 So we scan several squares that all don't block sight, until we come to number
 5, and it does block sight. Since 5 is intersecting just one sight line of the
-View, that means that we are in the case where the steep line is "bumped"
+view, that means that we are in the case where the steep line is "bumped"
 inward. The shallow line is unaffected by this.
 
 ![five-is-a-wall](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week03-05.png)
 
 Now we continue our scan and eventually find that 7 is also a blocker. It's
-within the View we've got going on, so we split clone the view, and the lower
+within the view we've got going on, so we split clone the view, and the lower
 index view treats it as a steep line bump, while the higher index view treats it
 as a shallow bump. Our lower index view remains red and blue, but our new higher
 index view will be yellow and purple.
@@ -192,12 +192,12 @@ when going back over old bumps. It gave me a lot of trouble to remember that
 detail the first time I tried to implement PPFOV. And also the second time too.
 By the third time I remembered at least.
 
-One final note, if a View has both lines colinear with each other, and they're
+One final note, if a view has both lines colinear with each other, and they're
 also projecting out from either extremity of the FOV origin, then that also
 counts as a dead view (in addition to the case where both lines intersect the
 same square).
 
-We stop a quadrant scan when we run out of Views in our list of active views. We
+We stop a quadrant scan when we run out of views in our list of active views. We
 also stop when we reach the limits of the FOV range even if there are still
 active views.
 
@@ -348,7 +348,7 @@ fn line_tests() {
 So, is `line_a` _above the point_ `(1,0)`? Of course it is! That's a lot easier
 to think about. I think. Let's move on before I get too lost in my own dumb
 words. Now that we can have a single sight line, we combine two sight lines and
-their view bumps to make a View.
+their view bumps to make a view.
 
 ```rust
 #[derive(Debug, Clone)]
@@ -385,7 +385,7 @@ impl View {
   // ...
 ```
 
-And adding a bump to a View is a little more complicated. We have to do that
+And adding a bump to a view is a little more complicated. We have to do that
 stuff where we use the lists of old bumps to adjust things based on a diagram we
 didn't see. So, we'll look at what the python code does and then blindly trust
 it for now.
@@ -457,8 +457,10 @@ fn view_tests() {
 }
 ```
 
-It passes. That's not at all the best test coverage, but it's enough confidence
-that we can move along with our code.
+It passes. That's not at all the best test coverage. Actually we barely even
+test out the parts that we were the least sure about (since we never have to
+update a line when checking old bumps), but we can move along with our code and
+check this areas first if we end up with something that doesn't work.
 
 Now we've got to check a whole quadrant at once. This is where we're forced to
 write something new that might look kind of weird, because we're going to write
@@ -622,7 +624,7 @@ And _maybe_ that's okay to do, and you can relax or remove the debug assertion,
 but you probably want to be notified when you're using the code in some new
 weird way, so that you can go back and check that everything is still fine.
 
-So now we find the right View that this coordinate is part of.
+So now we find the right view that this coordinate is part of.
 
 ```rust
   let top_left = (offset_x, offset_y + 1);
@@ -652,15 +654,16 @@ slices (a Vec will automatically
 [Deref](https://doc.rust-lang.org/std/ops/trait.Deref.html) into a slice when
 necessary), and then `match` on that. The `get` method will safely index into
 the slice and give an `Option<&T>`: either `Some(val_ref)` if it's a legal
-index, or `None` otherwise.
+index, or `None` otherwise (`get` isn't part of a trait, it's just a convention
+that Rust containers usually support).
 
 * If we get `None` we've gone past the end of the list without finding a result,
-  so we return, because this location doesn't fit into any View.
+  so we return, because this location doesn't fit into any view.
 * If we get `Some(view_ref)` we have another branch point:
   * First we check to see if the _steep line_ is below or collinear with the
     bottom right of this location. If that's the case, we're totally below the
-    current location, so we add 1 to our `view_index` so that the next pass
-    looks at the next view in the list (or gets a `None`).
+    current location, so we add 1 to our `view_index` for the next pass and then
+    loop.
   * Next we see if the _shallow line_ is above or collinear with the top left of
     this location. If that's the case then our view is totally above the
     location, but since we're always keeping our views sorted counter-clockwise
@@ -694,7 +697,9 @@ We're in the home stretch
 ```
 
 So _if and only if_ vision is blocked by this tile, we'll do some view updating.
-Otherwise, we're already done. I know you're gonna love this last part.
+Otherwise, we're already done.
+
+I know you're gonna love this last part.
 
 ```rust
     match (
@@ -734,7 +739,7 @@ Otherwise, we're already done. I know you're gonna love this last part.
 ```
 
 Great, we have all the branches covered. Wait, what's `check_view` look like?
-That one is super simple.
+Oh, of course, that one is super simple.
 
 ```rust
 fn check_view(active_views: &mut Vec<View>, view_index: usize) {
@@ -749,8 +754,9 @@ fn check_view(active_views: &mut Vec<View>, view_index: usize) {
 }
 ```
 
-The `check_view` function just does that one extra special rule, where a view is
-dead if the lines are the same and they pass through an extremity of the origin.
+The `check_view` function just does that one extra special rule we talked about,
+where a view is dead if the lines are the same and they pass through an
+extremity of the origin.
 
 How does all this actually _finally_ get called? Well, first we start off with
 some basic sanity checks for the FOV request as a whole, then we make a visited
@@ -811,10 +817,11 @@ where
 }
 ```
 
-* "Hey, Lokathor, isn't it totally stupid that we're passing radius twice to
-  each `check_quadrant` call?"
-* "Yeah, sure, but like let's _turn it on_ first and see if the results look
-  right before we go fiddling with too many of the particulars."
+I can already hear you asking, "Hey, Lokathor, isn't it totally stupid that
+we're passing radius twice to each `check_quadrant` call?"
+
+"Yeah, sure, but like let's _turn it on_ first and see if the results look right
+before we go fiddling with too many of the particulars."
 
 ### Part 04d: We Turn It On
 
@@ -877,6 +884,592 @@ use Location directly, or something. Still, it compiles.
 
 And it works!
 
-## Part 05: Placing Enemies
+Let's call it good.
 
-TODO
+We could maybe trim out a variable here or there, but there's no gross
+inefficiencies to be seen at first glance, so we'll call it good for now and
+then come back later when we know more about the rest of the code. Just to be
+clear, this module isn't entirely perfect, but it's as good as we need to start
+putting other things in place.
+
+## Part 05: Bumping An Enemy (Harmlessley)
+
+Wewe that last part was long. The next part is super simple in comparison. We're
+just going to add some more monsters to the world.
+
+All we gotta do is adjust the GameWorld initialization code a little, right?
+
+```rust
+    let player_start = out.pick_random_floor();
+    out.creatures.insert(player_start, Creature {});
+    out.player_location = player_start;
+
+    let monster_start = out.pick_random_floor();
+    out.creatures.insert(monster_start, Creature {});
+```
+
+![hello-myself](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week03-09.png)
+
+Ah, whoops.
+
+Well, we don't have any way to tell what's what, so right now _every_ creature
+is drawn as if they were Kasidin. Time to update how `Creature` works.
+
+```rust
+#[derive(Debug, Clone, Copy)]
+pub struct Creature {
+  pub icon: u8,
+  pub color: u32,
+  pub is_the_player: bool,
+}
+impl Creature {
+  fn new(icon: u8, color: u32) -> Self {
+    Creature {
+      icon,
+      color,
+      is_the_player: false,
+    }
+  }
+}
+```
+
+And then we update how we add the creatures. Also, we'll add way more than one
+other creature so that we can find stuff to look at easier.
+
+```rust
+    let player_start = out.pick_random_floor();
+    // we define TERULO_BROWN as a gold/brown color at the top of the file.
+    let mut player = Creature::new(b'@', TERULO_BROWN);
+    player.is_the_player = true;
+    out.creatures.insert(player_start, player);
+    out.player_location = player_start;
+
+    for _ in 0..50 {
+      let monster_start = out.pick_random_floor();
+      match out.creatures.entry(monster_start) {
+        Entry::Occupied(_) => {
+          // if we happen to pick an occupied location, just don't add a
+          // creature for this pass of the loop.
+          continue;
+        }
+        Entry::Vacant(ve) => {
+          ve.insert(Creature::new(b'k', rgb32!(166, 0, 0)));
+        }
+      }
+    }
+```
+
+Okay, and the final part is that we want the other creatures to also take a
+turn. In fact, we'll probably want to have a good spot to have many "per turn"
+things happen, so we'll start with a `run_world_turn` method to centralize that
+concept.
+
+```rust
+  pub fn run_world_turn(&mut self) {
+    unimplemented!()
+  }
+```
+
+And we update `move_player` to call that.
+
+```rust
+  pub fn move_player(&mut self, delta: Location) {
+    let player_move_target = self.player_location + delta;
+    if self.creatures.contains_key(&player_move_target) {
+      println!("bump!");
+    } else {
+      match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
+        Terrain::Wall => {
+          // Accidentally bumping a wall doesn't consume a turn.
+          return;
+        }
+        Terrain::Floor => {
+          let player = self
+            .creatures
+            .remove(&self.player_location)
+            .expect("The player wasn't where they should be!");
+          let old_creature = self.creatures.insert(player_move_target, player);
+          debug_assert!(old_creature.is_none());
+          self.player_location = player_move_target;
+        }
+      }
+    }
+    self.run_world_turn();
+  }
+```
+
+Okay now we fill in `run_world_turn` with... well, something.
+
+```rust
+  pub fn run_world_turn(&mut self) {
+    for (_loc_ref, creature_mut) in self.creatures.iter_mut() {
+      match self.gen.next_u32() >> 30 {
+        0 => {
+          creature_mut.color = self.gen.next_u32();
+        }
+        1 => {
+          creature_mut.color = self.gen.next_u32();
+        }
+        2 => {
+          creature_mut.color = self.gen.next_u32();
+        }
+        3 => {
+          creature_mut.color = self.gen.next_u32();
+        }
+        impossible => unreachable!("u32 >> 30: {}", impossible),
+      }
+    }
+  }
+```
+
+Colorful. Every turn, all the creatures get random colors assigned to them. Why are we
+doing that 4 way branch? You'll see in a moment.
+
+For now, what's the first problem? Well, we want to update _only things that
+aren't the player_, so we'll add something for that. If a creature comes up that
+has the `is_the_player` flag on, we skip them. This way Kasidin stays their
+lovely shade of Terulo Brown, and the little `'k'` creatures do their cute
+rainbow thing too.
+
+What else is wrong? Well... so the reason that we're doing that 4-way match is
+that we want to pick a random direction for the creature to try and move. Easy
+enough. Except we _can't_ move them with our data and loop set up like this! Do
+you already see the issue? Here, just to be clear, the code looks like this:
+
+```rust
+  pub fn run_world_turn(&mut self) {
+    for (loc_ref, creature_mut) in self.creatures.iter_mut() {
+      if creature_mut.is_the_player {
+        continue;
+      } else {
+        let dir = match self.gen.next_u32() >> 30 {
+          0 => Location { x: 0, y: 1 },
+          1 => Location { x: 0, y: -1 },
+          2 => Location { x: 1, y: 0 },
+          3 => Location { x: -1, y: 0 },
+          impossible => unreachable!("u32 >> 30: {}", impossible),
+        };
+        // this is the player's movement routine, just some stuff renamed
+        let move_target = *loc_ref + dir;
+        match *self.terrain.entry(move_target).or_insert(Terrain::Floor) {
+          Terrain::Wall => {
+            // Accidentally bumping a wall doesn't consume a turn.
+            return;
+          }
+          Terrain::Floor => {
+            let creature = self
+              .creatures
+              .remove(&self.player_location)
+              .expect("The player wasn't where they should be!");
+            let old_creature = self.creatures.insert(move_target, creature);
+            debug_assert!(old_creature.is_none());
+            // we don't update the player's location variable when a monster moves.
+          }
+        }
+      }
+    }
+  }
+```
+
+Now do you see it? It's okay if you don't see the problem, because the rust
+compiler already does!
+
+```
+D:\dev\roguelike-tutorial-2018>cargo run
+   Compiling roguelike-tutorial-2018 v0.2.0-pre (file:///D:/dev/roguelike-tutorial-2018)
+error[E0499]: cannot borrow `self.creatures` as mutable more than once at a time
+   --> src\lib.rs:288:28
+    |
+270 |       for (loc_ref, creature_mut) in self.creatures.iter_mut() {
+    |                                      --------------          - first borrow ends here
+    |                                      |
+    |                                      first mutable borrow occurs here
+...
+288 |               let creature = self
+    |  ____________________________^
+289 | |               .creatures
+    | |________________________^ second mutable borrow occurs here
+
+error[E0499]: cannot borrow `self.creatures` as mutable more than once at a time
+   --> src\lib.rs:292:32
+    |
+270 |     for (loc_ref, creature_mut) in self.creatures.iter_mut() {
+    |                                    --------------          - first borrow ends here
+    |                                    |
+    |                                    first mutable borrow occurs here
+...
+292 |             let old_creature = self.creatures.insert(move_target, creature);
+    |                                ^^^^^^^^^^^^^^ second mutable borrow occurs here
+
+error: aborting due to 2 previous errors
+
+For more information about this error, try `rustc --explain E0499`.
+error: Could not compile `roguelike-tutorial-2018`.
+
+To learn more, run the command again with --verbose.
+```
+
+What's wrong? Ah, yes, of course: we're trying to iterate the hashmap of
+<Location,Creature> but we _also_ need to edit that hashmap as we iterate. The
+ever tragic
+[ConcurrentModificationException](https://docs.oracle.com/javase/9/docs/api/java/util/ConcurrentModificationException.html).
+Woe and calamity! We'll need a new data representation to tackle this problem.
+
+We want something that allows:
+
+* Quick lookup of what creature is at a location, if any.
+* Iteration through the creatures list, and then giving each one a turn.
+
+That sounds like two totally different structures! That's actually what we'll
+do. Each creature will get a unique identifier, which we'll use to refer to
+them.
+
+```rust
+// we're setting aside '0' for a "null" type value, so the initial next value
+// starts at 1.
+static NEXT_CREATURE_ID: AtomicUsize = AtomicUsize::new(1);
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct CreatureID(pub usize);
+
+impl CreatureID {
+  fn atomic_new() -> Self {
+    CreatureID(NEXT_CREATURE_ID.fetch_add(1, Ordering::SeqCst))
+  }
+}
+```
+
+Hmm, so what the heck are we saying here? We're introducing a new standard
+library type,
+[AtomicUsize](https://doc.rust-lang.org/std/sync/atomic/struct.AtomicUsize.html),
+and then using a mutable global. "DANGER DANGER!", you shout. "Mutable globals
+are bad practice! Leads to horrible code! It's never thread safe!", you scream.
+No, this is okay. You see, this is an _atomic_ global, so it's always thread
+safe to update it. In fact, we don't even have to update it with `fetch_add`
+using just `&self`, we don't need `&mut self`. This means that the static value
+doesn't need to be declared `static mut`, and so we don't even need to use the
+`unsafe` keyword to access it. Everything is totally under control, totally safe.
+
+Note that we're not deriving `Clone` for the `CreatureID` type. You can still
+duplicate one by hand, since the inner field is public, but we want to be
+_extra_ picky about how these things move around, so we'll avoid having them be
+`Clone` for now. If it's too much of a bother later on we can just add it.
+Perhaps I'm just being paranoid.
+
+Now we add a unique identifier to each creature.
+
+```rust
+#[derive(Debug, Clone, Copy)]
+pub struct Creature {
+  pub icon: u8,
+  pub color: u32,
+  pub is_the_player: bool,
+  pub id: CreatureID,
+}
+impl Creature {
+  fn new(icon: u8, color: u32) -> Self {
+    Creature {
+      icon,
+      color,
+      is_the_player: false,
+      id: CreatureID::atomic_new(),
+    }
+  }
+}
+```
+
+Ah, and look, the compiler is already telling us that we can't go deriving Clone
+and Copy on our `Creature` type any more. This makes sense. We should _never_
+make an absolute duplicate of a creature any more, we should always at least
+give the new creature its own `CreatureID` value. If we remove `Clone` and
+`Copy` from `Creature`, it's easy to see that we don't actually use them much.
+One thing is that the `GameWorld` can't be `Clone` if the creatures can't be
+cloned. That's not a big deal, so we'll just give up that too.
+
+Now we're back to no errors other than the errors we started with before adding
+`CreatureID`. Next we change how the `GameWorld` looks.
+
+```rust
+#[derive(Debug, Default)]
+pub struct GameWorld {
+  pub player_location: Location,
+  pub creature_list: Vec<Creature>,
+  pub creature_locations: HashMap<Location, CreatureID>,
+  pub terrain: HashMap<Location, Terrain>,
+  pub gen: PCG32,
+}
+```
+
+Of course, this makes all sorts of things into errors because of invalid
+variable use, so we just let the compiler guide us to where each error is and
+fix them one at a time.
+
+First up is `GameWorld::new`
+
+```rust
+pub fn new(seed: u64) -> Self {
+    let mut out = Self {
+      player_location: Location { x: 5, y: 5 },
+      creature_list: vec![],
+      creature_locations: HashMap::new(),
+      terrain: HashMap::new(),
+      gen: PCG32 { state: seed },
+    };
+    let caves = make_cellular_caves(100, 100, &mut out.gen);
+    for (x, y, tile) in caves.iter() {
+      out
+        .terrain
+        .insert(Location { x: x as i32, y: y as i32 }, if *tile { Terrain::Wall } else { Terrain::Floor });
+    }
+
+    let mut player = Creature::new(b'@', TERULO_BROWN);
+    player.is_the_player = true;
+    let player_start = out.pick_random_floor();
+    let player_id = player.id.0;
+    out.creature_list.push(player);
+    out.creature_locations.insert(player_start, CreatureID(player_id));
+    out.player_location = player_start;
+
+    for _ in 0..50 {
+      let monster = Creature::new(b'k', rgb32!(166, 0, 0));
+      let monster_id = monster.id.0;
+      let monster_start = out.pick_random_floor();
+      match out.creature_locations.entry(monster_start) {
+        Entry::Occupied(_) => {
+          // if we happen to pick an occupied location, just don't add a
+          // creature for this pass of the loop.
+          continue;
+        }
+        Entry::Vacant(ve) => {
+          out.creature_list.push(monster);
+          ve.insert(CreatureID(monster_id));
+        }
+      }
+    }
+
+    out
+  }
+```
+
+As you can see, we're carefully, manually, making a duplicate of the CreatureID
+value for each creature as we create the creature. Then we're finding a location
+for it, putting it down there, and then putting it into our list.
+
+Next is `GameWorld::move_player`
+
+```rust
+  pub fn move_player(&mut self, delta: Location) {
+    let player_move_target = self.player_location + delta;
+    if self.creature_locations.contains_key(&player_move_target) {
+      println!("bump!");
+    } else {
+      match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
+        Terrain::Wall => {
+          // Accidentally bumping a wall doesn't consume a turn.
+          return;
+        }
+        Terrain::Floor => {
+          let player_id = self
+            .creature_locations
+            .remove(&self.player_location)
+            .expect("The player wasn't where they should be!");
+          let old_creature = self.creature_locations.insert(player_move_target, player_id);
+          debug_assert!(old_creature.is_none());
+          self.player_location = player_move_target;
+        }
+      }
+    }
+    self.run_world_turn();
+  }
+```
+
+The change is almost invisible. Instead of picking out a creature and then
+putting it at a new spot, we're picking out the ID and putting it at the new
+spot.
+
+This brings us back to `GameWorld::run_world_turn`, where we started. We can get
+some progress, but we'll be blocked again.
+
+```rust
+  pub fn run_world_turn(&mut self) {
+    for creature_mut in self.creature_list.iter_mut() {
+      if creature_mut.is_the_player {
+        continue;
+      } else {
+        let dir = match self.gen.next_u32() >> 30 {
+          0 => Location { x: 0, y: 1 },
+          1 => Location { x: 0, y: -1 },
+          2 => Location { x: 1, y: 0 },
+          3 => Location { x: -1, y: 0 },
+          impossible => unreachable!("u32 >> 30: {}", impossible),
+        };
+        let move_target = *loc_ref + dir;
+      }
+    }
+  }
+```
+
+So, how will we decide where a creature is? We can search the
+`creature_locations` every time, or we can have each creature store its location
+as part of its data. We've already fiddled with more fields this lesson, so
+we'll try out the other route just to see how it'd look. We might not want to
+keep it in the long run, because it's probably more CPU time that is called for
+compared to just storing a Location on each creature, but we'll just give it a
+try anyway just to try out some iterator stuff.
+
+```rust
+  pub fn run_world_turn(&mut self) {
+    for creature_mut in self.creature_list.iter_mut() {
+      if creature_mut.is_the_player {
+        continue;
+      } else {
+        let my_location: Option<Location> = {
+          self
+            .creature_locations
+            .iter()
+            .find(|&(&_loc, id)| id == &creature_mut.id)
+            .map(|(&loc, _id)| loc)
+        };
+        match my_location {
+          None => println!("Creature {:?} is not anywhere!", creature_mut.id),
+          Some(loc) => {
+            let move_target = loc + match self.gen.next_u32() >> 30 {
+              0 => Location { x: 0, y: 1 },
+              1 => Location { x: 0, y: -1 },
+              2 => Location { x: 1, y: 0 },
+              3 => Location { x: -1, y: 0 },
+              impossible => unreachable!("u32 >> 30: {}", impossible),
+            };
+            if self.creature_locations.contains_key(&move_target) {
+              println!("{:?} does a bump!", creature_mut.id);
+            } else {
+              match *self.terrain.entry(move_target).or_insert(Terrain::Floor) {
+                Terrain::Wall => {
+                  continue;
+                }
+                Terrain::Floor => {
+                  let id = self
+                    .creature_locations
+                    .remove(&move_target)
+                    .expect("The creature wasn't where they should be!");
+                  let old_id = self.creature_locations.insert(move_target, id);
+                  debug_assert!(old_id.is_none());
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+```
+
+My. Oh. My.
+
+Shockingly, almost none of this is a new concept, except the part with
+[find](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.find) and
+myabe [map](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map).
+We'll probably want to have a way to make random directions out of our `PCG32`
+at some point. We'll probably want to formalize the creature movement process so
+that it's not in two places at once at some point.
+
+Still, let's try to run the game.
+
+```
+D:\dev\roguelike-tutorial-2018>cargo run
+   Compiling roguelike-tutorial-2018 v0.2.0-pre (file:///D:/dev/roguelike-tutorial-2018)
+error[E0609]: no field `creatures` on type `roguelike_tutorial_2018::GameWorld`
+  --> src\bin\kasidin.rs:94:22
+   |
+94 |           match game.creatures.get(&loc_for_this_screen_position) {
+   |                      ^^^^^^^^^ unknown field
+   |
+   = note: available fields are: `player_location`, `creature_list`, `creature_locations`, `terrain`, `gen`
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0609`.
+error: Could not compile `roguelike-tutorial-2018`.
+
+To learn more, run the command again with --verbose.
+```
+
+Ah ha! The binary itself can't draw the game any more because it's not using the
+new system too. We only have to change a small part.
+
+```rust
+          match game.creature_locations.get(&loc_for_this_screen_position) {
+            Some(cid_ref) => {
+              let creature_here = game
+                .creature_list
+                .iter()
+                .find(|&creature_ref| &creature_ref.id == cid_ref)
+                .expect("Our locations and list are out of sync!");
+              *id_mut = creature_here.icon;
+              fgs[(scr_x, scr_y)] = creature_here.color;
+            }
+```
+
+Let's give that a run.
+
+_presses an arrow key_
+
+```
+D:\dev\roguelike-tutorial-2018>cargo run
+   Compiling roguelike-tutorial-2018 v0.2.0-pre (file:///D:/dev/roguelike-tutorial-2018)
+    Finished dev [unoptimized + debuginfo] target(s) in 3.01s
+     Running `target\debug\kasidin.exe`
+thread 'main' panicked at 'The creature wasn't where they should be!', libcore\option.rs:960:5
+note: Run with `RUST_BACKTRACE=1` for a backtrace.
+error: process didn't exit successfully: `target\debug\kasidin.exe` (exit code: 101)
+```
+
+Whooooops.
+
+```rust
+                  let id = self
+                    .creature_locations
+                    .remove(&move_target)
+                    .expect("The creature wasn't where they should be!");
+```
+
+Ah, stupid me, we can't remove the creature from where it wants _to go_, we have
+to remove it from where _it is_. Simple fix.
+
+```rust
+                  let id = self.creature_locations.remove(&loc).expect("The creature wasn't where they should be!");
+```
+
+You might be wondering at this point why there's so much pointless indentation.
+I like to keep the indent level of code example blocks the same as it is in the
+real code as much as I can. It looks pretty silly with one line on its own like
+that though, I'll admit.
+
+Okay let's try running it again.
+
+```
+D:\dev\roguelike-tutorial-2018>cargo run
+   Compiling roguelike-tutorial-2018 v0.2.0-pre (file:///D:/dev/roguelike-tutorial-2018)
+    Finished dev [unoptimized + debuginfo] target(s) in 2.27s
+     Running `target\debug\kasidin.exe`
+```
+
+_presses an arrow key a few times_
+
+```
+CreatureID(32) does a bump!
+```
+
+:D
+
+And there you have it, creatures that take turns and bump around.
+
+We don't currently have the player remember what they have seen, but that's easy
+enough to add. You just store a HashSet of all the places ever seen on this
+level, and then if the camera looks at a place that's not in the FOV you double
+check if it's an old location seen and draw something from memory. However, I
+don't think we'll do that in this game, because I rather like the spooky and
+claustrophobic vibe I'm getting from not being able to see what you've walked
+past. You can add it in your own game, I won't stop you.
+
+![creatures](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week03-10.png)

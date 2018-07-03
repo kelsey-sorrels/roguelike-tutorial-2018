@@ -7,11 +7,13 @@ pub(crate) use dwarf_term::*;
 pub(crate) use std::collections::hash_map::*;
 pub(crate) use std::collections::hash_set::*;
 pub(crate) use std::ops::*;
+pub(crate) use std::sync::atomic::*;
 
 pub mod precise_permissive_fov;
 pub use precise_permissive_fov::*;
 
 pub const WALL_TILE: u8 = 13 * 16 + 11;
+pub const TERULO_BROWN: u32 = rgb32!(197, 139, 5);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default, Hash)]
 pub struct Location {
@@ -45,8 +47,23 @@ impl Sub for Location {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Creature {}
+#[derive(Debug)]
+pub struct Creature {
+  pub icon: u8,
+  pub color: u32,
+  pub is_the_player: bool,
+  pub id: CreatureID,
+}
+impl Creature {
+  fn new(icon: u8, color: u32) -> Self {
+    Creature {
+      icon,
+      color,
+      is_the_player: false,
+      id: CreatureID::atomic_new(),
+    }
+  }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terrain {
@@ -165,10 +182,24 @@ fn make_cellular_caves(width: usize, height: usize, gen: &mut PCG32) -> VecImage
   }
 }
 
-#[derive(Debug, Clone, Default)]
+// we're setting aside '0' for a "null" type value, so the initial next value
+// starts at 1.
+static NEXT_CREATURE_ID: AtomicUsize = AtomicUsize::new(1);
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct CreatureID(pub usize);
+
+impl CreatureID {
+  fn atomic_new() -> Self {
+    CreatureID(NEXT_CREATURE_ID.fetch_add(1, Ordering::SeqCst))
+  }
+}
+
+#[derive(Debug, Default)]
 pub struct GameWorld {
   pub player_location: Location,
-  pub creatures: HashMap<Location, Creature>,
+  pub creature_list: Vec<Creature>,
+  pub creature_locations: HashMap<Location, CreatureID>,
   pub terrain: HashMap<Location, Terrain>,
   pub gen: PCG32,
 }
@@ -177,7 +208,8 @@ impl GameWorld {
   pub fn new(seed: u64) -> Self {
     let mut out = Self {
       player_location: Location { x: 5, y: 5 },
-      creatures: HashMap::new(),
+      creature_list: vec![],
+      creature_locations: HashMap::new(),
       terrain: HashMap::new(),
       gen: PCG32 { state: seed },
     };
@@ -188,9 +220,30 @@ impl GameWorld {
         .insert(Location { x: x as i32, y: y as i32 }, if *tile { Terrain::Wall } else { Terrain::Floor });
     }
 
+    let mut player = Creature::new(b'@', TERULO_BROWN);
+    player.is_the_player = true;
     let player_start = out.pick_random_floor();
-    out.creatures.insert(player_start, Creature {});
+    let player_id = player.id.0;
+    out.creature_list.push(player);
+    out.creature_locations.insert(player_start, CreatureID(player_id));
     out.player_location = player_start;
+
+    for _ in 0..50 {
+      let monster = Creature::new(b'k', rgb32!(166, 0, 0));
+      let monster_id = monster.id.0;
+      let monster_start = out.pick_random_floor();
+      match out.creature_locations.entry(monster_start) {
+        Entry::Occupied(_) => {
+          // if we happen to pick an occupied location, just don't add a
+          // creature for this pass of the loop.
+          continue;
+        }
+        Entry::Vacant(ve) => {
+          out.creature_list.push(monster);
+          ve.insert(CreatureID(monster_id));
+        }
+      }
+    }
 
     out
   }
@@ -214,8 +267,8 @@ impl GameWorld {
 
   pub fn move_player(&mut self, delta: Location) {
     let player_move_target = self.player_location + delta;
-    if self.creatures.contains_key(&player_move_target) {
-      // LATER: combat will go here
+    if self.creature_locations.contains_key(&player_move_target) {
+      println!("Player does a bump!");
     } else {
       match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
         Terrain::Wall => {
@@ -223,17 +276,59 @@ impl GameWorld {
           return;
         }
         Terrain::Floor => {
-          let player = self
-            .creatures
+          let player_id = self
+            .creature_locations
             .remove(&self.player_location)
             .expect("The player wasn't where they should be!");
-          let old_creature = self.creatures.insert(player_move_target, player);
+          let old_creature = self.creature_locations.insert(player_move_target, player_id);
           debug_assert!(old_creature.is_none());
           self.player_location = player_move_target;
         }
       }
     }
-    // LATER: other creatures act now that the player is resolved.
+    self.run_world_turn();
+  }
+
+  pub fn run_world_turn(&mut self) {
+    for creature_mut in self.creature_list.iter_mut() {
+      if creature_mut.is_the_player {
+        continue;
+      } else {
+        let my_location: Option<Location> = {
+          self
+            .creature_locations
+            .iter()
+            .find(|&(&_loc, id)| id == &creature_mut.id)
+            .map(|(&loc, _id)| loc)
+        };
+        match my_location {
+          None => println!("Creature {:?} is not anywhere!", creature_mut.id),
+          Some(loc) => {
+            let move_target = loc + match self.gen.next_u32() >> 30 {
+              0 => Location { x: 0, y: 1 },
+              1 => Location { x: 0, y: -1 },
+              2 => Location { x: 1, y: 0 },
+              3 => Location { x: -1, y: 0 },
+              impossible => unreachable!("u32 >> 30: {}", impossible),
+            };
+            if self.creature_locations.contains_key(&move_target) {
+              println!("{:?} does a bump!", creature_mut.id);
+            } else {
+              match *self.terrain.entry(move_target).or_insert(Terrain::Floor) {
+                Terrain::Wall => {
+                  continue;
+                }
+                Terrain::Floor => {
+                  let id = self.creature_locations.remove(&loc).expect("The creature wasn't where they should be!");
+                  let old_id = self.creature_locations.insert(move_target, id);
+                  debug_assert!(old_id.is_none());
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
 

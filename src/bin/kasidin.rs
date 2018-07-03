@@ -91,10 +91,15 @@ fn main() {
           y: scr_y as i32,
         } + offset;
         if seen_set.contains(&(loc_for_this_screen_position.x, loc_for_this_screen_position.y)) {
-          match game.creatures.get(&loc_for_this_screen_position) {
-            Some(ref _creature) => {
-              *id_mut = b'@';
-              fgs[(scr_x, scr_y)] = rgb32!(255, 255, 255);
+          match game.creature_locations.get(&loc_for_this_screen_position) {
+            Some(cid_ref) => {
+              let creature_here = game
+                .creature_list
+                .iter()
+                .find(|&creature_ref| &creature_ref.id == cid_ref)
+                .expect("Our locations and list are out of sync!");
+              *id_mut = creature_here.icon;
+              fgs[(scr_x, scr_y)] = creature_here.color;
             }
             None => match game.terrain.get(&loc_for_this_screen_position) {
               Some(Terrain::Wall) => {
