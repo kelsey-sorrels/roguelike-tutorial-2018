@@ -7,24 +7,27 @@ Because we can't see through walls, and because there are walls, we can only see
 part of the map. We will use the Precise Permissive FOV algorithm, because the
 only published [FOV
 comparison](http://www.roguebasin.com/index.php?title=Comparative_study_of_field_of_view_algorithms_for_2D_grid_based_worlds)
-rates PPFOV as being the best FOV that's fully symmetric. I'm a dnd playing sort
-of fellow, so I think that non-symmetric FOV is a farce, and also a crime
-against tactical play.
+rates PPFOV as being the best FOV that's fully symmetric. I'm a fan of having
+proper tactical battles, so I think that non-symmetric FOV is a farce, and also
+a crime against your players.
 
 So, the [overview
-page](http://www.roguebasin.com/index.php?title=Permissive_Field_of_View)
+page](http://www.roguebasin.com/index.php?title=Permissive_Field_of_View) weakly
 outlines some advantages and disadvantages, it also links to implementations in
 various languages. The [algorithm
 page](http://www.roguebasin.com/index.php?title=Precise_Permissive_Field_of_View)
 explains how we actually do it. There's one big catch: there's supposed to be
-some images on that article, but the wiki itself doesn't allow image uploads and
-they keep eventually going down from wherever they're hosted elsewhere each time
-they're hosted elsewhere. Some of the diagrams are ASCII art within the article,
-and some of the images I happen to just remember how they look and I'll draw
-them out, but for the rest we'll just have to fumble in the dark. There's a
+some images on that article, but the wiki itself [doesn't allow image
+uploads](http://www.roguebasin.com/index.php?title=Talk:Precise_Permissive_Field_of_View)
+and they keep eventually going down from wherever they're hosted elsewhere each
+time they're hosted elsewhere. Some of the diagrams are ASCII art within the
+article, and some of the images I happen to just remember how they look and I'll
+draw them out, but for the rest we'll just have to fumble in the dark. There's a
 [python
 version](http://www.roguebasin.com/index.php?title=Permissive_Field_of_View_in_Python)
-of the code that we can also look at as we fumble through.
+of the code that we can also look at as we fumble through. Python is not a good
+programming language, and you should strive to avoid it when you can, but the
+particular example there makes for good pseudo-code.
 
 ### Part 04a: What Will We Build
 
@@ -34,27 +37,27 @@ used. Precise Permissive Field of View (PPFOV) has the following key properties:
 
 * **2-dimensional:** This is fine for us, since our game exists in distinct cave
   layers. The algorithm could _theoretically_ be expanded out into 3d (as could
-  most FOV), but all known examples and the explanation text assume 2d.
-* **Binary, Grid Based:** Every single cell is either fully blocking of FOV or
-  fully non-blocking of FOV. We also don't store data about partial cover around
-  corners or partial visibility as you look into a fog.
+  most FOV), but all known examples and the explanation text itself assume 2d.
+* **Binary, Grid Based:** Every single map cell is either fully blocking of FOV
+  or fully non-blocking of FOV. We don't compute data about partial cover around
+  corners, or partial visibility as you look into a fog, or any other such thing.
 * **Fully Reflexive:** If you can see square A from square B, you'll always be
   able to see square B from square A as well. This sounds simple, but several of
-  the popular FOV algorithms don't have this property because it lets you
-  compute FOV faster. I usually like speed, but I don't like speed at the
+  the popular FOV algorithms _don't_ have this property (because it lets you
+  compute FOV faster). I usually like speed, but I don't like speed at the
   expense of accuracy.
 * **Very Permissive:** If _any_ part of square A can see _any_ part of square B,
   then B will be in the result set for A's FOV. This is part of how the "fully
   reflexive" part works, because in some situations a corner or center of A will
-  be able to see part of B, but not the other way around, and if you only
-  compute from corners and squares you'll end up with situations where you can't
-  see someone who can see you.
-* **You _Can_ See Through Diagonal Gaps:** This isn't a big deal for us right now,
-  since we don't support diagonal movement and our cave generator is unlikely to
-  generate levels with diagonal gaps in them, but it's something to take note of.
-* **You _Can Not_ See Entirely Around Pillars:** This part we might care about.
-  If you're on one side of a 1x1 wall, a "pillar", then you can see every other
-  square adjacent to the pillar _except_ the square on the exact opposite side.
+  be able to see part of B, but not the other way around. If you only compute
+  from corners you'll end up with situations where you can't see things you
+  should be able to.
+* **You _Can_ See Through Diagonal Gaps:** Our cave generators don't make many
+  of them right now, but it can happen. You also can't currently move
+  diagonally, so you can't step through a gap that you can see through. We might
+  add diagonal movement later.
+* **You _Can Not_ See Entirely Around Pillars:** This should be obvious, but
+  sometimes it helps to state the seemingly obvious.
 
 Let's look at some diagrams:
 
