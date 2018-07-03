@@ -1142,11 +1142,11 @@ impl CreatureID {
 Hmm, so what the heck are we saying here? We're introducing a new standard
 library type,
 [AtomicUsize](https://doc.rust-lang.org/std/sync/atomic/struct.AtomicUsize.html),
-and then using a mutable global. "DANGER DANGER!", you shout. "Mutable globals
+and then using a global. "DANGER DANGER!", you shout. "Globals
 are bad practice! Leads to horrible code! It's never thread safe!", you scream.
 No, this is okay. You see, this is an _atomic_ global, so it's always thread
-safe to update it. In fact, we don't even have to update it with `fetch_add`
-using just `&self`, we don't need `&mut self`. This means that the static value
+safe to update it. In fact, we even update it with `fetch_add`
+using just `&self`, we don't need `&mut self` like we usually would for an updating method. This means that the static value
 doesn't need to be declared `static mut`, and so we don't even need to use the
 `unsafe` keyword to access it. Everything is totally under control, totally safe.
 
