@@ -1315,7 +1315,7 @@ as part of its data. We've already fiddled with more fields this lesson, so
 we'll try out the other route just to see how it'd look. We might not want to
 keep it in the long run, because it's probably more CPU time that is called for
 compared to just storing a Location on each creature, but we'll just give it a
-try anyway just to try out some iterator stuff.
+try, see some iterator stuff.
 
 ```rust
   pub fn run_world_turn(&mut self) {
@@ -1368,7 +1368,7 @@ My. Oh. My.
 
 Shockingly, almost none of this is a new concept, except the part with
 [find](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.find) and
-myabe [map](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map).
+maybe [map](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map).
 We'll probably want to have a way to make random directions out of our `PCG32`
 at some point. We'll probably want to formalize the creature movement process so
 that it's not in two places at once at some point.
