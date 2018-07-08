@@ -1142,11 +1142,11 @@ impl CreatureID {
 Hmm, so what the heck are we saying here? We're introducing a new standard
 library type,
 [AtomicUsize](https://doc.rust-lang.org/std/sync/atomic/struct.AtomicUsize.html),
-and then using a mutable global. "DANGER DANGER!", you shout. "Mutable globals
+and then using a global. "DANGER DANGER!", you shout. "Globals
 are bad practice! Leads to horrible code! It's never thread safe!", you scream.
 No, this is okay. You see, this is an _atomic_ global, so it's always thread
-safe to update it. In fact, we don't even have to update it with `fetch_add`
-using just `&self`, we don't need `&mut self`. This means that the static value
+safe to update it. In fact, we even update it with `fetch_add`
+using just `&self`, we don't need `&mut self` like we usually would for an updating method. This means that the static value
 doesn't need to be declared `static mut`, and so we don't even need to use the
 `unsafe` keyword to access it. Everything is totally under control, totally safe.
 
@@ -1315,7 +1315,7 @@ as part of its data. We've already fiddled with more fields this lesson, so
 we'll try out the other route just to see how it'd look. We might not want to
 keep it in the long run, because it's probably more CPU time that is called for
 compared to just storing a Location on each creature, but we'll just give it a
-try anyway just to try out some iterator stuff.
+try, see some iterator stuff.
 
 ```rust
   pub fn run_world_turn(&mut self) {
@@ -1368,7 +1368,7 @@ My. Oh. My.
 
 Shockingly, almost none of this is a new concept, except the part with
 [find](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.find) and
-myabe [map](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map).
+maybe [map](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map).
 We'll probably want to have a way to make random directions out of our `PCG32`
 at some point. We'll probably want to formalize the creature movement process so
 that it's not in two places at once at some point.
