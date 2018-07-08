@@ -11,6 +11,8 @@ pub(crate) use std::sync::atomic::*;
 
 pub mod precise_permissive_fov;
 pub use precise_permissive_fov::*;
+pub mod pathing;
+pub use pathing::*;
 
 pub const WALL_TILE: u8 = 13 * 16 + 11;
 pub const TERULO_BROWN: u32 = rgb32!(197, 139, 5);
@@ -21,9 +23,51 @@ pub struct Location {
   pub y: i32,
 }
 
+struct LocationNeighborsIter {
+  x: i32,
+  y: i32,
+  index: usize,
+}
+impl Iterator for LocationNeighborsIter {
+  type Item = Location;
+  fn next(&mut self) -> Option<Self::Item> {
+    match self.index {
+      0 => {
+        self.index += 1;
+        Some(Location { x: self.x + 1, y: self.y })
+      }
+      1 => {
+        self.index += 1;
+        Some(Location { x: self.x - 1, y: self.y })
+      }
+      2 => {
+        self.index += 1;
+        Some(Location { x: self.x, y: self.y + 1 })
+      }
+      3 => {
+        self.index += 1;
+        Some(Location { x: self.x, y: self.y - 1 })
+      }
+      _ => None,
+    }
+  }
+}
+
 impl Location {
-  pub fn as_usize(self) -> (usize, usize) {
+  /*
+  pub fn as_usize_tuple(self) -> (usize, usize) {
     (self.x as usize, self.y as usize)
+  }
+  pub fn as_i32_tuple(self) -> (i32, i32) {
+    (self.x, self.y)
+  }
+  */
+  pub fn neighbors(&self) -> impl Iterator<Item = Location> {
+    LocationNeighborsIter {
+      x: self.x,
+      y: self.y,
+      index: 0,
+    }
   }
 }
 
@@ -287,6 +331,7 @@ impl GameWorld {
       }
     }
     self.run_world_turn();
+    println!("turn over!");
   }
 
   pub fn run_world_turn(&mut self) {
@@ -304,13 +349,38 @@ impl GameWorld {
         match my_location {
           None => println!("Creature {:?} is not anywhere!", creature_mut.id),
           Some(loc) => {
-            let move_target = loc + match self.gen.next_u32() >> 30 {
-              0 => Location { x: 0, y: 1 },
-              1 => Location { x: 0, y: -1 },
-              2 => Location { x: 1, y: 0 },
-              3 => Location { x: -1, y: 0 },
-              impossible => unreachable!("u32 >> 30: {}", impossible),
+            // Look around
+            let seen_locations = {
+              let terrain_ref = &self.terrain;
+              let mut seen_locations = HashSet::new();
+              ppfov(
+                (loc.x, loc.y),
+                7,
+                |x, y| terrain_ref.get(&Location { x, y }).unwrap_or(&Terrain::Wall) == &Terrain::Wall,
+                |x, y| {
+                  seen_locations.insert(Location { x, y });
+                },
+              );
+              seen_locations
             };
+            // Decide where to go
+            let move_target = if seen_locations.contains(&self.player_location) {
+              let terrain_ref = &self.terrain;
+              let path = a_star(self.player_location, loc, |loc| {
+                terrain_ref.get(&loc).unwrap_or(&Terrain::Wall) != &Terrain::Wall
+              }).expect("couldn't find a path");
+              debug_assert_eq!(loc, path[0]);
+              path[1]
+            } else {
+              loc + match self.gen.next_u32() >> 30 {
+                0 => Location { x: 0, y: 1 },
+                1 => Location { x: 0, y: -1 },
+                2 => Location { x: 1, y: 0 },
+                3 => Location { x: -1, y: 0 },
+                impossible => unreachable!("u32 >> 30: {}", impossible),
+              }
+            };
+            // go there
             if self.creature_locations.contains_key(&move_target) {
               println!("{:?} does a bump!", creature_mut.id);
             } else {
