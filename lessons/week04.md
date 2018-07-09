@@ -792,10 +792,17 @@ Now we can actually, you know, add fighting.
 
 Time to add some combat!
 
-**So, what's our combat system?** Some sort of vaguely d20 thing? Roll 1d20+Atk
->= Target.AC to hit, and then 1d6 for damage off of their HP? We've seen it a
-billion times. Let's try something new! We'll rip off a _different_ old RPG's
-mechanics instead of stealing from DnD.
+**So, what's our combat system?**
+
+Some sort of vaguely d20 thing? Again?
+
+```
+1d20+Atk >= Target.AC to hit
+1d6 for damage
+```
+
+We've seen it a billion times. Let's try something new! We'll rip off a
+_different_ old RPG's mechanics instead of stealing from DnD.
 
 #### Part 06b.a: Module Cleanup
 
