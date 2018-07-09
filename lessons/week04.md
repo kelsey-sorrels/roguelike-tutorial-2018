@@ -576,7 +576,7 @@ to.
             let move_target = path[1];
 ```
 
-Okay, so, now every single turn every player in the game will move towards the
+Okay, so, now every single turn every creature in the game will move towards the
 player as best as it can, from an unlimited distance away. This will be... not
 fast. A* is not cheap as your search space goes up, and we've got a sizable map.
 The final game won't have enemies pathing from unlimited distance though, and if
