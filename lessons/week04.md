@@ -549,7 +549,7 @@ know what type we want for that. The fix is that we need to specify the type of
   g_score.insert(start, 0i32);
 ```
 
-Okay now well... oh, we're out of `unimplemented!()` uses. I guess we're done.
+Okay now we... oh, we're out of `unimplemented!()` uses. I guess we're done.
 So... right, we just need to call this code. First we'll make all the monsters
 magically know where the hero is and path toward them. Remember that right now
 the monster takes a step like this:
