@@ -453,12 +453,12 @@ and pick the lower one.
     });
 ```
 
-"Lokathor", I hear you grumble, "That's stupid! Surely finding the minimim value
+"Lokathor", I hear you grumble, "That's stupid! Surely finding the minimum value
 in an iterator with some custom key is a common enough operation that it'd be in
 the standard library without needing to write a custom fold every time!"
 
 Of course! We just wrote out the `fold` to see how you'd do it yourself if you
-had to. But as you guessed there is a
+had to. But, as you guessed, there is a
 [min_by_key](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.min_by_key)
 method already, and in our actual code we'll use that because it makes the
 intent much clearer.
@@ -698,7 +698,7 @@ error[E0387]: cannot borrow data mutably in a captured outer variable in an `Fn`
 help: consider changing this closure to take self by mutable reference
 ```
 
-Okay, that's _kinda_ on me. We only accept `Fn(Location) -> bool` because
+Okay, that one is _kinda_ on me. We only accept `Fn(Location) -> bool` because
 checking for if a location is walkable _shouldn't be updating anything_. If it
 _is_ updating something, that means that... the walkable status of stuff is
 random, or the terrain is changing around you as you compute your path... or
@@ -729,15 +729,17 @@ note: Run with `RUST_BACKTRACE=1` for a backtrace.
 error: process didn't exit successfully: `target\debug\kasidin.exe` (exit code: 101)
 ```
 
-Oh, rip. We're saying that things are walkable if they `== &Terrain::Wall`, but
-we actually want the opposite. Better fix that and try again.
+Oh, rip. We're saying that things are walkable if they are `== &Terrain::Wall`,
+but we actually want the opposite. Better fix that and try again.
 
-Oh goddess save us I didn't remove the debug printy line! delete that.
+Oh goddess save us I didn't remove the debug printy line! delete that and try
+again again.
 
 Wow that's still crazy slow. If we add a "turn done!" line at the end of
-`move_player` it's like 10 seconds to do a single turn. Let's try it with `cargo
-run --release`? Okay, that's not good but it's _responsive_ at least. Eventually
-Kasidin gets trapped by all the little `k`s that swarm in.
+`move_player` it's like 10 seconds or so to do a single turn. Let's try it with
+`cargo run --release`? Okay, that's not perfect but it's _responsive_ at least.
+Eventually Kasidin gets trapped by all the little `k`s that swarm in. And you
+can't fight them yet, so you're just stuck.
 
 So let's restrict them to only seeing a little bit of space around them. We'll
 say that they can see up to 7 squares only. Just picking a small number that
@@ -781,13 +783,782 @@ isn't visible we'll go back to taking a random step.
 Wow, our FOV _really should_ have used `Location` throughout. Eh. Not really our
 goal to fix that right now.
 
-Give that a run and we're back to having a functional game even in debug mode.
+Give that a run and we're back to having a responsive game even in debug mode.
 Now we can actually, you know, add fighting.
+
+[code so far](https://github.com/Lokathor/roguelike-tutorial-2018/commit/243906ec243bf2492cbbec0ebbf6844ba8d4cb5c)
 
 ### Part 06b: Mortal Kombat (with a 'k')
 
-TODO combat
+Time to add some combat!
+
+**So, what's our combat system?** Some sort of vaguely d20 thing? Roll 1d20+Atk
+>= Target.AC to hit, and then 1d6 for damage off of their HP? We've seen it a
+billion times. Let's try something new! We'll rip off a _different_ old RPG's
+mechanics instead of stealing from DnD.
+
+#### Part 06b.a: Module Cleanup
+
+So since we're going to be doing more random stuff we'll make a module just for
+that. We move all the old prng code into `prng.rs`. We've also gotta make a
+`new` method for `PCG32`, since `state` is module private. It doesn't _do_
+anything, just passes on the param.
+
+```rust
+// part of impl PCG32 in prng.rs
+  pub fn new(state: u64) -> Self {
+    Self { state }
+  }
+```
+
+Next thing we want is to make some const rand ranges for the normal sorts of
+dice we'll want to roll.
+
+Except we can't call `RandRangeInclusive32::new` in a const context! Easy, we
+just make a test that the const value is the same as the output from
+`RandRangeInclusive32::new` (since test _don't_ run in a const context of
+course), and we fill in the initial const value with 0s. We let the test fail,
+and it'll print out the values that it was looking for.
+
+```rust
+pub const d4: RandRangeInclusive32 = RandRangeInclusive32 {
+  base: 0,
+  width: 0,
+  reject: 0,
+};
+#[test]
+fn test_d4_const_is_correct() {
+  assert_eq!(d4, RandRangeInclusive32::new(1..=4))
+}
+```
+
+and give that a `cargo test`
+
+```
+running 4 tests
+test prng::range_range_inclusive_32_sample_validity_test_d6 ... ignored
+test precise_permissive_fov::view_tests ... ok
+test prng::test_d4_const_is_correct ... FAILED
+test precise_permissive_fov::line_tests ... ok
+
+failures:
+
+---- prng::test_d4_const_is_correct stdout ----
+thread 'prng::test_d4_const_is_correct' panicked at 'assertion failed: `(left == right)`
+  left: `RandRangeInclusive32 { base: 0, width: 0, reject: 0 }`,
+ right: `RandRangeInclusive32 { base: 1, width: 4, reject: 4294967291 }`', src\prng.rs:114:3
+note: Run with `RUST_BACKTRACE=1` for a backtrace.
+
+
+failures:
+    prng::test_d4_const_is_correct
+
+test result: FAILED. 2 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out
+
+error: test failed, to rerun pass '--lib'
+```
+
+Bam! Now we'll throw in some for the other dice.
+
+```
+---- prng::test_d12_const_is_correct stdout ----
+thread 'prng::test_d12_const_is_correct' panicked at 'assertion failed: `(left == right)`
+  left: `RandRangeInclusive32 { base: 1, width: 4, reject: 4294967291 }`,
+ right: `RandRangeInclusive32 { base: 1, width: 12, reject: 4294967291 }`', src\prng.rs:156:3
+
+---- prng::test_d10_const_is_correct stdout ----
+thread 'prng::test_d10_const_is_correct' panicked at 'assertion failed: `(left == right)`
+  left: `RandRangeInclusive32 { base: 1, width: 4, reject: 4294967291 }`,
+ right: `RandRangeInclusive32 { base: 1, width: 10, reject: 4294967289 }`', src\prng.rs:146:3
+note: Run with `RUST_BACKTRACE=1` for a backtrace.
+
+---- prng::test_d20_const_is_correct stdout ----
+thread 'prng::test_d20_const_is_correct' panicked at 'assertion failed: `(left == right)`
+  left: `RandRangeInclusive32 { base: 1, width: 4, reject: 4294967291 }`,
+ right: `RandRangeInclusive32 { base: 1, width: 20, reject: 4294967279 }`', src\prng.rs:166:3
+
+---- prng::test_d6_const_is_correct stdout ----
+thread 'prng::test_d6_const_is_correct' panicked at 'assertion failed: `(left == right)`
+  left: `RandRangeInclusive32 { base: 1, width: 4, reject: 4294967291 }`,
+ right: `RandRangeInclusive32 { base: 1, width: 6, reject: 4294967291 }`', src\prng.rs:126:3
+
+---- prng::test_d8_const_is_correct stdout ----
+thread 'prng::test_d8_const_is_correct' panicked at 'assertion failed: `(left == right)`
+  left: `RandRangeInclusive32 { base: 1, width: 4, reject: 4294967291 }`,
+ right: `RandRangeInclusive32 { base: 1, width: 8, reject: 4294967287 }`', src\prng.rs:136:3
+```
+
+So helpful! And we'll also update
+`range_range_inclusive_32_sample_validity_test_d6` to use the actual `d6` value
+now that we have one. While we're at it, we should test the other dice too.
+Let's start with `d8`...
+
+```
+---- prng::range_range_inclusive_32_sample_validity_test_d8 stdout ----
+thread 'prng::range_range_inclusive_32_sample_validity_test_d8' panicked at 'assertion failed: outputs[0] < 8', src\prng.rs:128:3
+note: Run with `RUST_BACKTRACE=1` for a backtrace.
+```
+
+Wait what? Oh, we kinda talked about this before. Because 8 is a power of 2,
+it'll actually have a _full_ range rejected on the high end, so there should be
+exactly 8 elements in that outputs[0] slot, instead of being less than 8
+elements in the rejected slot. I think? We'll just give that a bump into
+`assert!(outputs[0] == 8);` and try again.
+
+```
+D:\dev\roguelike-tutorial-2018>cargo test --release -- --ignored
+   Compiling roguelike-tutorial-2018 v0.4.0-pre (file:///D:/dev/roguelike-tutorial-2018)
+    Finished release [optimized] target(s) in 8.37s
+     Running target\release\deps\roguelike_tutorial_2018-a493e670302f602a.exe
+
+running 2 tests
+test prng::range_range_inclusive_32_sample_validity_test_d8 ... ok
+test prng::range_range_inclusive_32_sample_validity_test_d6 ... ok
+```
+
+Okay. So now we want this sort of thing for all the dice. We _could_ make a
+macro to carefully eliminate the code duplication, but that'd actually be harder
+than copy-pasting, so we'll just copy-paste and fiddle things until we've got
+one for each dX const.
+
+```
+D:\dev\roguelike-tutorial-2018>cargo test --release -- --ignored
+   Compiling roguelike-tutorial-2018 v0.4.0-pre (file:///D:/dev/roguelike-tutorial-2018)
+    Finished release [optimized] target(s) in 8.37s
+     Running target\release\deps\roguelike_tutorial_2018-a493e670302f602a.exe
+
+running 6 tests
+test prng::range_range_inclusive_32_sample_validity_test_d8 ... ok
+test prng::range_range_inclusive_32_sample_validity_test_d4 ... ok
+test prng::range_range_inclusive_32_sample_validity_test_d10 ... ok
+test prng::range_range_inclusive_32_sample_validity_test_d6 ... ok
+test prng::range_range_inclusive_32_sample_validity_test_d12 ... ok
+test prng::range_range_inclusive_32_sample_validity_test_d20 ... ok
+```
+
+Alright, so now we're _reasonably_ assured that our `d4` through `d20` random
+ranges are doing what we think they're doing.
+
+**Next step:** We'll make a function that rolls a dX, then rolls again and adds
+to the total if you get the X value. We'll call this `explode`, since the value
+"explodes" into the next higher tier when you get a maximum output. There's
+three main places we could put this code: a method on the `RandRangeInclusive32`
+type, a method on the `PCG32` type, or just a free function in the `prng.rs`
+module. The `RandRangeInclusive32` type already has a `roll_with` method, so we
+could put `explode` there.
+
+```rust
+// part of impl RandRangeInclusive32
+  /// An "explosive" style roll of the dice.
+  ///
+  /// Does one roll, and if the result is the maximum then instead of directly
+  /// returning another roll is performed (which can also explode). The final
+  /// output is the last non-maximum roll plus the number of explosions times
+  /// the maximum value of a single roll.
+  ///
+  /// There's no direct limit to the number of re-rolls, but in practice the
+  /// reroll count is unlikely to ever be that large.
+  ///
+  /// This is _intended_ for ranges where the minimum is 1, but actually there's
+  /// nothing preventing you from using it with other ranges.
+  pub fn explode(&self, gen: &mut PCG32) -> u32 {
+    let highest = self.high();
+    let mut explosions = 0;
+    loop {
+      if let Some(output) = self.convert(gen.next_u32()) {
+        if output == highest {
+          explosions += 1;
+        } else {
+          return output + explosions * highest;
+        }
+      }
+    }
+  }
+```
+
+**Next Step:** We make a function that takes an input and rolls a number
+according to the other fantasy RPG we'll be taking our mechanics from (remember
+that [game mechanics aren't protected by
+copyright](https://www.gamasutra.com/view/news/273935/Texas_court_affirms_game_mechanics_not_protected_under_copyright_law.php),
+so we're in the clear _legally_, even if we are potentially being lazy
+_morally_). We don't need to say what game, we'll just refer to it as "the game"
+when we talk about it here. You can go investigate what game if you want, it
+shouldn't be hard at all.
+
+Our magical input to output function will be called `step4`. It needs a `PCG32`
+to use and a step number to roll. Where does this code live? Well, it's not
+using any particular `RandRangeInclusive32` value, and as I said I think the
+`PCG32` type should stay as dead simple as possible, so we'll just make it a
+free function.
+
+```rust
+/// Rolls a step roll, according to the 4th edition chart.
+pub fn step4(gen: &mut PCG32, step: ?) -> ? {
+  unimplemented!()
+}
+```
+
+We just need to decide what _type_ we want our input and output to be. Hmm. Well
+the step inputs will _by default_ be positive, but if there's a lot of modifiers
+on a roll, you might get a total that's less than 0. Similarly, a modifier will
+sometimes need to be a negative number.
+
+Let's review the status of wrapping math in rust:
+
+* As I mentioned when we first made the PCG32, rust's math operators (`+`, `-`,
+  etc) will, by default, panic on wrap around _in debug mode only_, and then do
+  wrapping math in release mode.
+* You can also call specific methods if you want always wrapping, always
+  saturating, or always checked (which is what we do with `PCG32`).
+* You can _also_ also use the
+  [Wrapping](https://doc.rust-lang.org/std/num/struct.Wrapping.html) type to
+  make the normal operator symbols always do wrapping math. It's clear enough
+  that a `Checked` type wrapper wouldn't work (the signatures it uses wouldn't
+  work with the the operator traits), but for whatever reason there isn't a
+  `Saturating` type wrapper, now that I'm looking for it in the standard
+  library. Weird. I guess no one cared enough to write it.
+* You can _also also_ also just straight up force math checks to be enabled or
+  disabled regardless of your compilation mode by overriding the default of
+  "checked math on = debug mode on" to be "checked math on" or "checked math
+  off" (eg: `-Z force-overflow-checks=off`). I don't like this last method so
+  much because it's not obvious when reading just the code that you're expecting
+  some special flag to be in effect.
+
+So, I think that we'll just accept `i32` for input, and also give output `i32`
+for output. The _actual_ outputs will never be less than 0, but if the output
+type and input type match up it's a lot easier to mix around numbers if you need
+to (which is a _good_ thing in this case, even though in other situations it can
+obviously be [very bad](http://articles.latimes.com/1999/oct/01/news/mn-17288)).
+
+```rust
+/// Rolls a step roll, according to the 4th edition chart.
+pub fn step4(gen: &mut PCG32, step: i32) -> i32 {
+  unimplemented!()
+}
+```
+
+Now, the step roller's actual minimum allowed input is 1. If the input is less
+than 1, the output will be 0.
+
+```rust
+/// Rolls a step roll, according to the 4th edition chart.
+pub fn step4(gen: &mut PCG32, step: i32) -> i32 {
+  if step < 1 {
+    0
+  } else {
+    unimplemented!()
+  }
+}
+```
+
+For 1 through 13, there's a specific exploding dice expression that will be
+returned.
+
+```rust
+/// Rolls a step roll, according to the 4th edition chart.
+pub fn step4(gen: &mut PCG32, step: i32) -> i32 {
+  if step < 1 {
+    0
+  } else {
+    (match step {
+      1 => (d4.explode(gen) as i32 - 2).max(1) as u32,
+      2 => (d4.explode(gen) as i32 - 1).max(1) as u32,
+      3 => d4.explode(gen),
+      4 => d6.explode(gen),
+      5 => d8.explode(gen),
+      6 => d10.explode(gen),
+      7 => d12.explode(gen),
+      8 => d6.explode(gen) + d6.explode(gen),
+      9 => d8.explode(gen) + d6.explode(gen),
+      10 => d8.explode(gen) + d8.explode(gen),
+      11 => d10.explode(gen) + d8.explode(gen),
+      12 => d10.explode(gen) + d10.explode(gen),
+      13 => d12.explode(gen) + d10.explode(gen),
+      more_than_13 => unimplemented!(),
+    }) as i32
+  }
+}
+```
+
+As you can see, mixing in the use of negative numbers is already a little fiddly
+with the lowest step values there, so it's probably a good sign to stick with
+`i32` as much as we can.
+
+So, if we have a number above 13, we want to add a d12 to the total and then
+subtract 7 steps. So step 14 is d12 + step 7 (2d12 total), and step 15 is d12 +
+step 8 (d12+2d6 total), and so forth. We could do a loop and then a recursive
+call, or we can just do a slightly bigger loop without a recursive call.
+
+Let's try without recursion:
+
+```rust
+/// Rolls a step roll, according to the 4th edition chart.
+pub fn step4(gen: &mut PCG32, mut step: i32) -> i32 {
+  if step < 1 {
+    0
+  } else {
+    let mut total = 0i32;
+    loop {
+      match step {
+        1 => return total + (d4.explode(gen) as i32 - 2).max(1),
+        2 => return total + (d4.explode(gen) as i32 - 1).max(1),
+        3 => return total + d4.explode(gen) as i32,
+        4 => return total + d6.explode(gen) as i32,
+        5 => return total + d8.explode(gen) as i32,
+        6 => return total + d10.explode(gen) as i32,
+        7 => return total + d12.explode(gen) as i32,
+        8 => return total + d6.explode(gen) as i32 + d6.explode(gen) as i32,
+        9 => return total + d8.explode(gen) as i32 + d6.explode(gen) as i32,
+        10 => return total + d8.explode(gen) as i32 + d8.explode(gen) as i32,
+        11 => return total + d10.explode(gen) as i32 + d8.explode(gen) as i32,
+        12 => return total + d10.explode(gen) as i32 + d10.explode(gen) as i32,
+        13 => return total + d12.explode(gen) as i32 + d10.explode(gen) as i32,
+        _more_than_13 => {
+          total += d12.explode(gen) as i32;
+          step -= 7;
+        }
+      }
+    }
+  }
+}
+```
+
+That's... not nice looking :/ If we do the smaller loop... well let's just see...
+
+```rust
+/// Rolls a step roll, according to the 4th edition chart.
+pub fn step4_recur(gen: &mut PCG32, mut step: i32) -> i32 {
+  if step < 1 {
+    0
+  } else {
+    (match step {
+      1 => (d4.explode(gen) as i32 - 2).max(1) as u32,
+      2 => (d4.explode(gen) as i32 - 1).max(1) as u32,
+      3 => d4.explode(gen),
+      4 => d6.explode(gen),
+      5 => d8.explode(gen),
+      6 => d10.explode(gen),
+      7 => d12.explode(gen),
+      8 => d6.explode(gen) + d6.explode(gen),
+      9 => d8.explode(gen) + d6.explode(gen),
+      10 => d8.explode(gen) + d8.explode(gen),
+      11 => d10.explode(gen) + d8.explode(gen),
+      12 => d10.explode(gen) + d10.explode(gen),
+      13 => d12.explode(gen) + d10.explode(gen),
+      _more_than_13 => {
+        let mut total = 0u32;
+        while step > 13 {
+          total += d12.explode(gen);
+          step -= 7;
+        }
+        total + step4_recur(gen, step) as u32
+      }
+    }) as i32
+  }
+}
+```
+
+That doesn't feel particularly good either. Well, we can throw the whole module
+into [godbolt](godbolt.org) (be sure to replace `use super::*;` with `use
+std::ops::*`) and check it. We get... 747 lines of ASM for the recursive
+version vs 752 lines of ASM for the non-recursive version (using `-C
+opt-level=3`). Uh, maybe throw all that into a diff page, maybe there's... yeah,
+no hints there. It's not mostly the same until X point, it's like totally
+different.
+
+Well, we can throw it into a benchmarker and pick that way? We just make a file
+in the `benches/` directory off of the crate root, we can call it `benches.rs`
+as a default.
+
+```rust
+#![feature(test)]
+#![allow(non_snake_case)]
+
+extern crate test;
+use test::Bencher;
+
+extern crate roguelike_tutorial_2018;
+use roguelike_tutorial_2018::*;
+
+#[bench]
+fn bench_step4(b: &mut Bencher) {
+  let gen = &mut PCG32::new(u64_from_time());
+  b.iter(|| step4(gen, 20));
+}
+
+#[bench]
+fn bench_step4_recur(b: &mut Bencher) {
+  let gen = &mut PCG32::new(u64_from_time());
+  b.iter(|| step4_recur(gen, 20));
+}
+```
+
+And use `cargo bench`, or `cargo +nightly bench` if your default compiler is
+stable.
+
+```
+running 2 tests
+test bench_step4       ... bench:          13 ns/iter (+/- 0)
+test bench_step4_recur ... bench:          13 ns/iter (+/- 0)
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 2 measured; 0 filtered out
+```
+
+Welp! Even running that a few more times, they pretty much run the same speed.
+Guess we'll use the non-recursive version just because it's clearer. We can
+clean it up a bit too probably. Let's try this
+
+```rust
+/// Rolls a step roll, according to the 4th edition chart.
+pub fn step4(gen: &mut PCG32, mut step: i32) -> i32 {
+  if step < 1 {
+    0
+  } else {
+    let mut total = 0;
+    while step > 13 {
+      total += d12.explode(gen);
+      step -= 7;
+    }
+    (total + match step {
+      1 => (d4.explode(gen) as i32 - 2).max(1) as u32,
+      2 => (d4.explode(gen) as i32 - 1).max(1) as u32,
+      3 => d4.explode(gen),
+      4 => d6.explode(gen),
+      5 => d8.explode(gen),
+      6 => d10.explode(gen),
+      7 => d12.explode(gen),
+      8 => d6.explode(gen) + d6.explode(gen),
+      9 => d8.explode(gen) + d6.explode(gen),
+      10 => d8.explode(gen) + d8.explode(gen),
+      11 => d10.explode(gen) + d8.explode(gen),
+      12 => d10.explode(gen) + d10.explode(gen),
+      13 => d12.explode(gen) + d10.explode(gen),
+      _other => unreachable!(),
+    }) as i32
+  }
+}
+```
+
+Oh, and we'll run the benchmark again real fast just to make sure we didn't
+accidentally hurt ourselves somehow.
+
+```
+running 1 test
+test bench_step4 ... bench:          11 ns/iter (+/- 0)
+```
+
+What. the. crap.
+
+_Okay_, so we're using this version I guess.
+
+This concludes the module cleanup, we're ready to roll our dice.
+
+#### Part 06b.b: Looking To Protect Yourself, Or Deal Some Damage?
+
+So what stats does a `Creature` have again?
+
+```rust
+pub struct Creature {
+  pub icon: u8,
+  pub color: u32,
+  pub is_the_player: bool,
+  pub id: CreatureID,
+}
+```
+
+Hmm, so we'll give a creature a `hit_points` and `damage_step`, both of which
+are `i32`. They default to 10 and 5. If you bump another creature you roll your
+damage step and deal that many damage. No attack rolls or anything fancy, we'll
+do that in a moment.
+
+First, we want the player to be able to bump an enemy. Where's our player combat
+code... oh right:
+
+```rust
+    if self.creature_locations.contains_key(&player_move_target) {
+      println!("Player does a bump!");
+    } else {
+```
+
+Alright, so now we care about what that key is if it is in there. We just switch that `if` into a `match` and...
+
+```rust
+    match self.creature_locations.get(&player_move_target) {
+      Some(creature_id_ref) => {
+        println!("Player does a bump!");
+      }
+      None => {
+        match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
+          Terrain::Wall => {
+            // Accidentally bumping a wall doesn't consume a turn.
+            return;
+          }
+          Terrain::Floor => {
+            let player_id = self
+              .creature_locations
+              .remove(&self.player_location)
+              .expect("The player wasn't where they should be!");
+            let old_creature = self.creature_locations.insert(player_move_target, player_id);
+            debug_assert!(old_creature.is_none());
+            self.player_location = player_move_target;
+          }
+        }
+      }
+    }
+```
+
+We get some red lines!
+
+```
+error[E0502]: cannot borrow `self.creature_locations` as mutable because it is also borrowed as immutable
+   --> src\lib.rs:331:29
+    |
+320 |       match self.creature_locations.get(&player_move_target) {
+    |             ----------------------- immutable borrow occurs here
+...
+331 |               let player_id = self
+    |  _____________________________^
+332 | |               .creature_locations
+    | |_________________________________^ mutable borrow occurs here
+...
+341 |       }
+    |       - immutable borrow ends here
+```
+
+Oh come on! There's no actual reference that must remain valid in the `None`
+case, this should be legit. _Fine_, we'll go back to the entry API, which is how
+you're supposed to get around this crap.
+
+Except... we can't do that, because while it helps in the `Occupied` case if we
+find a monster, it makes it near impossible to write the `Vacant` case, since
+we'll have already grabbed the locations as mutable and we'll need to mutate the
+locations to get the player out of their old spot to put them in the new spot.
+
+Maybe the magical [Non-Lexical
+Lifetimes](https://github.com/rust-lang/rust-roadmap/issues/16) will save us? We
+put this at the top of our file and...
+
+```rust
+#![feature(nll)]
+```
+
+Welp, we're back to being nightly only I guess, `*edits readme*`.
+
+So now we know the `CreatureID` of who we want to attack. This is one of those
+situations where we have to futz with the player's entry in the creature list
+and also the target's entry in the creature list. Since right now there's
+nothing where the damage can reflect on to the player or anything, we'll just do
+all the player's work, then apply it to the target.
+
+```rust
+      Some(target_id_ref) => {
+        // someone is there, do the attack!
+        let player_damage_roll = {
+          let player_id_ref = self.creature_locations.get(&self.player_location).unwrap();
+          let player_ref = self.creature_list.iter().find(|creature_ref| &creature_ref.id == player_id_ref).unwrap();
+          step4(&mut self.gen, player_ref.damage_step)
+        };
+        let target_ref_mut = self
+          .creature_list
+          .iter_mut()
+          .find(|creature_mut_ref| &creature_mut_ref.id == target_id_ref)
+          .unwrap();
+        target_ref_mut.hit_points -= player_damage_roll;
+      }
+```
+
+Okay, now during `run_world_turn`, in addition to skipping anyone who is the
+player, we'll also skip creatures that don't have any hit points, and at the end
+of the turn we'll clear any NPCs that are out of hit points.
+
+```rust
+    self
+      .creature_list
+      .retain(|creature_ref| creature_ref.hit_points > 0 || creature_ref.is_the_player);
+```
+
+Right now the player can't lose, but they also can't take damage. Let's try this.
+
+```
+D:\dev\roguelike-tutorial-2018>cargo run
+    Finished dev [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target\debug\kasidin.exe`
+turn over!
+turn over!
+CreatureID(23) does a bump!
+turn over!
+CreatureID(3) does a bump!
+CreatureID(6) does a bump!
+CreatureID(25) does a bump!
+turn over!
+CreatureID(6) does a bump!
+CreatureID(48) does a bump!
+turn over!
+CreatureID(6) does a bump!
+turn over!
+CreatureID(14) does a bump!
+turn over!
+thread 'main' panicked at 'Our locations and list are out of sync!', libcore\option.rs:960:5
+note: Run with `RUST_BACKTRACE=1` for a backtrace.
+error: process didn't exit successfully: `target\debug\kasidin.exe` (exit code: 101)
+```
+
+What went wrong? I bet you can tell me.
+
+We didn't update our creature locations mapping!
+
+So, we need a much smarter call to `retain`.
+
+```rust
+    let creature_locations_mut = &mut self.creature_locations;
+    self.creature_list.retain(|creature_ref| {
+      let keep = creature_ref.hit_points > 0 || creature_ref.is_the_player;
+      if !keep {
+        let dead_location = *creature_locations_mut
+          .iter()
+          .find(|&(_, v_cid)| v_cid == &creature_ref.id)
+          .expect("Locations list out of sync!")
+          .0;
+        creature_locations_mut.remove(&dead_location);
+      };
+      keep
+    });
+```
+
+Now we can kill stuff and it _doesn't_ crash! Such a win.
+
+#### Part 06b.c: The monsters strike back
+
+Now the monsters should also deal damage. We just gotta update the `// go there`
+part of the monster movement code.
+
+```rust
+            // go there
+            match self.creature_locations.get(&move_target) {
+              Some(target_id_ref) => {
+                // someone is there, do the attack!
+                let our_damage_roll = step4(&mut self.gen, creature_mut.damage_step);
+                let target_ref_mut = self
+                  .creature_list
+                  .iter_mut()
+                  .find(|creature_mut_ref| &creature_mut_ref.id == target_id_ref)
+                  .unwrap();
+                if target_ref_mut.is_the_player {
+                  target_ref_mut.hit_points -= our_damage_roll;
+                }
+                // TODO: log that we did damage.
+              }
+              None => match *self.terrain.entry(move_target).or_insert(Terrain::Floor) {
+                Terrain::Wall => {
+                  continue;
+                }
+                Terrain::Floor => {
+                  let id = self.creature_locations.remove(&loc).expect("The creature wasn't where they should be!");
+                  let old_id = self.creature_locations.insert(move_target, id);
+                  debug_assert!(old_id.is_none());
+                }
+              },
+            }
+```
+
+Oh no, red lines. We're editing the creature list while we're iterating the
+creature list. Totally no good.
+
+Hmmmmmmm. How do we want to handle this one? Easiest way seems to be to just
+grab all the `CreatureID` values, make an initiative list out of that, and then
+go over the initiative list. We can also filter the initiative list as we build
+it.
+
+```rust
+    let initiative_list: Vec<CreatureID> = self
+      .creature_list
+      .iter()
+      .filter_map(|creature_mut| {
+        if creature_mut.is_the_player || creature_mut.hit_points < 1 {
+          None
+        } else {
+          Some(CreatureID(creature_mut.id.0))
+        }
+      })
+      .collect();
+    for creature_id_ref in initiative_list.iter() {
+      //...
+    }
+```
+
+Now we just adjust all the stuff inside to work with an ID instead of a creature
+itself, and then we're off to the races. Let's add some print statements too.
+
+```
+turn over!
+CreatureID(19) did 6 damage to CreatureID(1)
+turn over!
+Player did 5 damage to CreatureID(19)
+CreatureID(19) did 2 damage to CreatureID(1)
+turn over!
+Player did 4 damage to CreatureID(19)
+CreatureID(19) did 5 damage to CreatureID(1)
+```
+
+Neat!
+
+In terms of mechanics, well you'd probably want to make an attack roll and
+stuff, but since it's now clear where and how we'd put that in the code (roll
+the attack while you roll the damage, then check if the attack is high enough
+before you apply the damage), I'll leave that up to you for now.
 
 ## Part 07: Creating The Interface
 
-TODO display some info i guess
+Alright so the player is taking all this damage but they don't know it. That's
+our next goal.
+
+It's not a big goal, it's actually super easy if we use _just a bit_ of unsafe code.
+
+First let's go to where we draw the game, and now we draw to only a sub-portion
+of the full screen.
+
+```rust
+      // draw the map, save space for the status line.
+      const STATUS_HEIGHT: usize = 1;
+      let full_extent = (ids.width(), ids.height());
+      let map_view_end = (full_extent.0, full_extent.1 - STATUS_HEIGHT);
+      for (scr_x, scr_y, id_mut) in ids.slice_mut((0, 0)..map_view_end).iter_mut() {
+```
+
+Next we can write text to the status line at the top by turning a single row of
+the `ImageMutSlice<u8>` image into a `&mut [u8]` and then writing into it with
+plain string formatting. Rust can't verify when you cast between pointer types
+like this, so we'll want to be extra careful that we've done our math right with
+some extra debug asserts.
+
+```rust
+      // draw the status bar.
+      let mut ids_status_slice_mut = ids.slice_mut((0, map_view_end.1)..full_extent);
+      debug_assert_eq!(ids_status_slice_mut.width(), full_extent.0);
+      debug_assert_eq!(ids_status_slice_mut.height(), STATUS_HEIGHT);
+      ids_status_slice_mut.set_all(0);
+      debug_assert_eq!(1, STATUS_HEIGHT);
+      let mut status_line_u8_slice_mut: &mut [u8] = unsafe { ::std::slice::from_raw_parts_mut(ids_status_slice_mut.as_mut_ptr(), full_extent.0) };
+      let player_hp = game
+        .creature_list
+        .iter()
+        .find(|creature_ref| creature_ref.is_the_player)
+        .unwrap()
+        .hit_points;
+      write!(status_line_u8_slice_mut, "HP: {}", player_hp).ok();
+```
+
+And now we get a lovely game with a status bar and everything:
+
+![game-working](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week04-01.png)
+
+We can even add a little enemy counter, so that you know when you've killed
+everything.
+
+```rust
+      write!(status_line_u8_slice_mut, "HP: {}, Enemies: {}", player_hp, game.creature_list.len() - 1).ok();
+```
+
+Anyway, that's it for this week I think. I did all of this in one big marathon,
+OBS says that I was live for about 7h:40m. It'll probably take you a lot less
+time than that to read it I hope.

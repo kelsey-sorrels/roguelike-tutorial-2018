@@ -1,3 +1,4 @@
+#![feature(nll)]
 #![allow(unused_mut)]
 
 extern crate dwarf_term;
@@ -9,10 +10,12 @@ pub(crate) use std::collections::hash_set::*;
 pub(crate) use std::ops::*;
 pub(crate) use std::sync::atomic::*;
 
-pub mod precise_permissive_fov;
-pub use precise_permissive_fov::*;
 pub mod pathing;
 pub use pathing::*;
+pub mod precise_permissive_fov;
+pub use precise_permissive_fov::*;
+pub mod prng;
+pub use prng::*;
 
 pub const WALL_TILE: u8 = 13 * 16 + 11;
 pub const TERULO_BROWN: u32 = rgb32!(197, 139, 5);
@@ -97,6 +100,8 @@ pub struct Creature {
   pub color: u32,
   pub is_the_player: bool,
   pub id: CreatureID,
+  pub hit_points: i32,
+  pub damage_step: i32,
 }
 impl Creature {
   fn new(icon: u8, color: u32) -> Self {
@@ -105,6 +110,8 @@ impl Creature {
       color,
       is_the_player: false,
       id: CreatureID::atomic_new(),
+      hit_points: 10,
+      damage_step: 5,
     }
   }
 }
@@ -255,7 +262,7 @@ impl GameWorld {
       creature_list: vec![],
       creature_locations: HashMap::new(),
       terrain: HashMap::new(),
-      gen: PCG32 { state: seed },
+      gen: PCG32::new(seed),
     };
     let caves = make_cellular_caves(100, 100, &mut out.gen);
     for (x, y, tile) in caves.iter() {
@@ -311,22 +318,38 @@ impl GameWorld {
 
   pub fn move_player(&mut self, delta: Location) {
     let player_move_target = self.player_location + delta;
-    if self.creature_locations.contains_key(&player_move_target) {
-      println!("Player does a bump!");
-    } else {
-      match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
-        Terrain::Wall => {
-          // Accidentally bumping a wall doesn't consume a turn.
-          return;
-        }
-        Terrain::Floor => {
-          let player_id = self
-            .creature_locations
-            .remove(&self.player_location)
-            .expect("The player wasn't where they should be!");
-          let old_creature = self.creature_locations.insert(player_move_target, player_id);
-          debug_assert!(old_creature.is_none());
-          self.player_location = player_move_target;
+    match self.creature_locations.get(&player_move_target) {
+      Some(target_id_ref) => {
+        // someone is there, do the attack!
+        let player_damage_roll = {
+          let player_id_ref = self.creature_locations.get(&self.player_location).unwrap();
+          let player_ref = self.creature_list.iter().find(|creature_ref| &creature_ref.id == player_id_ref).unwrap();
+          step4(&mut self.gen, player_ref.damage_step)
+        };
+        let target_ref_mut = self
+          .creature_list
+          .iter_mut()
+          .find(|creature_mut_ref| &creature_mut_ref.id == target_id_ref)
+          .unwrap();
+        target_ref_mut.hit_points -= player_damage_roll;
+        println!("Player did {} damage to {:?}", player_damage_roll, target_id_ref);
+      }
+      None => {
+        // no one is there, move
+        match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
+          Terrain::Wall => {
+            // Accidentally bumping a wall doesn't consume a turn.
+            return;
+          }
+          Terrain::Floor => {
+            let player_id = self
+              .creature_locations
+              .remove(&self.player_location)
+              .expect("The player wasn't where they should be!");
+            let old_creature = self.creature_locations.insert(player_move_target, player_id);
+            debug_assert!(old_creature.is_none());
+            self.player_location = player_move_target;
+          }
         }
       }
     }
@@ -335,182 +358,109 @@ impl GameWorld {
   }
 
   pub fn run_world_turn(&mut self) {
-    for creature_mut in self.creature_list.iter_mut() {
-      if creature_mut.is_the_player {
-        continue;
-      } else {
-        let my_location: Option<Location> = {
-          self
-            .creature_locations
-            .iter()
-            .find(|&(&_loc, id)| id == &creature_mut.id)
-            .map(|(&loc, _id)| loc)
-        };
-        match my_location {
-          None => println!("Creature {:?} is not anywhere!", creature_mut.id),
-          Some(loc) => {
-            // Look around
-            let seen_locations = {
-              let terrain_ref = &self.terrain;
-              let mut seen_locations = HashSet::new();
-              ppfov(
-                (loc.x, loc.y),
-                7,
-                |x, y| terrain_ref.get(&Location { x, y }).unwrap_or(&Terrain::Wall) == &Terrain::Wall,
-                |x, y| {
-                  seen_locations.insert(Location { x, y });
-                },
-              );
-              seen_locations
-            };
-            // Decide where to go
-            let move_target = if seen_locations.contains(&self.player_location) {
-              let terrain_ref = &self.terrain;
-              let path = a_star(self.player_location, loc, |loc| {
-                terrain_ref.get(&loc).unwrap_or(&Terrain::Wall) != &Terrain::Wall
-              }).expect("couldn't find a path");
-              debug_assert_eq!(loc, path[0]);
-              path[1]
-            } else {
-              loc + match self.gen.next_u32() >> 30 {
-                0 => Location { x: 0, y: 1 },
-                1 => Location { x: 0, y: -1 },
-                2 => Location { x: 1, y: 0 },
-                3 => Location { x: -1, y: 0 },
-                impossible => unreachable!("u32 >> 30: {}", impossible),
-              }
-            };
-            // go there
-            if self.creature_locations.contains_key(&move_target) {
-              println!("{:?} does a bump!", creature_mut.id);
-            } else {
-              match *self.terrain.entry(move_target).or_insert(Terrain::Floor) {
-                Terrain::Wall => {
-                  continue;
-                }
-                Terrain::Floor => {
-                  let id = self.creature_locations.remove(&loc).expect("The creature wasn't where they should be!");
-                  let old_id = self.creature_locations.insert(move_target, id);
-                  debug_assert!(old_id.is_none());
-                }
-              }
+    let initiative_list: Vec<CreatureID> = self
+      .creature_list
+      .iter()
+      .filter_map(|creature_mut| {
+        if creature_mut.is_the_player || creature_mut.hit_points < 1 {
+          None
+        } else {
+          Some(CreatureID(creature_mut.id.0))
+        }
+      })
+      .collect();
+    for creature_id_ref in initiative_list.iter() {
+      let my_location: Option<Location> = {
+        self
+          .creature_locations
+          .iter()
+          .find(|&(_loc, id)| id == creature_id_ref)
+          .map(|(&loc, _id)| loc)
+      };
+      match my_location {
+        None => println!("Creature {:?} is not anywhere!", creature_id_ref),
+        Some(loc) => {
+          // Look around
+          let seen_locations = {
+            let terrain_ref = &self.terrain;
+            let mut seen_locations = HashSet::new();
+            ppfov(
+              (loc.x, loc.y),
+              7,
+              |x, y| terrain_ref.get(&Location { x, y }).unwrap_or(&Terrain::Wall) == &Terrain::Wall,
+              |x, y| {
+                seen_locations.insert(Location { x, y });
+              },
+            );
+            seen_locations
+          };
+          // Decide where to go
+          let move_target = if seen_locations.contains(&self.player_location) {
+            let terrain_ref = &self.terrain;
+            let path = a_star(self.player_location, loc, |loc| {
+              terrain_ref.get(&loc).unwrap_or(&Terrain::Wall) != &Terrain::Wall
+            }).expect("couldn't find a path");
+            debug_assert_eq!(loc, path[0]);
+            path[1]
+          } else {
+            loc + match self.gen.next_u32() >> 30 {
+              0 => Location { x: 0, y: 1 },
+              1 => Location { x: 0, y: -1 },
+              2 => Location { x: 1, y: 0 },
+              3 => Location { x: -1, y: 0 },
+              impossible => unreachable!("u32 >> 30: {}", impossible),
             }
+          };
+          // go there
+          match self.creature_locations.get(&move_target) {
+            Some(target_id_ref) => {
+              // someone is there, do the attack!
+              let creature_damage_roll = {
+                let creature_ref = self
+                  .creature_list
+                  .iter()
+                  .find(|creature_ref| &creature_ref.id == creature_id_ref)
+                  .unwrap();
+                step4(&mut self.gen, creature_ref.damage_step)
+              };
+              let target_ref_mut = self
+                .creature_list
+                .iter_mut()
+                .find(|creature_mut_ref| &creature_mut_ref.id == target_id_ref)
+                .unwrap();
+              if target_ref_mut.is_the_player {
+                target_ref_mut.hit_points -= creature_damage_roll;
+                println!("{:?} did {} damage to {:?}", creature_id_ref, creature_damage_roll, target_id_ref);
+              }
+              // TODO: log that we did damage.
+            }
+            None => match *self.terrain.entry(move_target).or_insert(Terrain::Floor) {
+              Terrain::Wall => {
+                continue;
+              }
+              Terrain::Floor => {
+                let id = self.creature_locations.remove(&loc).expect("The creature wasn't where they should be!");
+                let old_id = self.creature_locations.insert(move_target, id);
+                debug_assert!(old_id.is_none());
+              }
+            },
           }
         }
       }
     }
-  }
-}
-
-#[derive(Debug, Clone)]
-pub struct PCG32 {
-  state: u64,
-}
-
-impl Default for PCG32 {
-  /// Makes a generator with the default state suggested by Wikipedia.
-  fn default() -> Self {
-    PCG32 { state: 0x4d595df4d0f33173 }
-  }
-}
-
-impl PCG32 {
-  pub fn next_u32(&mut self) -> u32 {
-    const A: u64 = 6364136223846793005;
-    const C: u64 = 1442695040888963407; // this can be any odd const
-    self.state = self.state.wrapping_mul(A).wrapping_add(C);
-    let mut x = self.state;
-    let rotation = (x >> 59) as u32;
-    x ^= x >> 18;
-    ((x >> 27) as u32).rotate_right(rotation)
-  }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RandRangeInclusive32 {
-  base: u32,
-  width: u32,
-  reject: u32,
-}
-
-impl RandRangeInclusive32 {
-  pub fn new(range_incl: RangeInclusive<u32>) -> Self {
-    let (low, high) = range_incl.into_inner();
-    assert!(low < high, "RandRangeInclusive32 must go from low to high, got {} ..= {}", low, high);
-    let base = low;
-    let width = (high - low) + 1;
-    debug_assert!(width > 0);
-    let width_count = ::std::u32::MAX / width;
-    let reject = (width_count * width) - 1;
-    RandRangeInclusive32 { base, width, reject }
-  }
-
-  /// Lowest possible result of this range.
-  pub fn low(&self) -> u32 {
-    self.base
-  }
-
-  /// Highest possible result of this range.
-  pub fn high(&self) -> u32 {
-    self.base + (self.width - 1)
-  }
-
-  /// Converts any `u32` into `Some(val)` if the input can be evenly placed
-  /// into range, or `None` otherwise.
-  pub fn convert(&self, roll: u32) -> Option<u32> {
-    if roll > self.reject {
-      None
-    } else {
-      Some(self.base + (roll % self.width))
-    }
-  }
-
-  pub fn roll_with(&self, gen: &mut PCG32) -> u32 {
-    loop {
-      if let Some(output) = self.convert(gen.next_u32()) {
-        return output;
-      }
-    }
-  }
-}
-
-#[test]
-#[ignore]
-pub fn range_range_inclusive_32_sample_validity_test_d6() {
-  let the_range = RandRangeInclusive32::new(1..=6);
-  let mut outputs: [u32; 7] = [0; 7];
-  // 0 to one less than max
-  for u in 0..::std::u32::MAX {
-    let opt = the_range.convert(u);
-    match opt {
-      Some(roll) => outputs[roll as usize] += 1,
-      None => outputs[0] += 1,
-    };
-  }
-  // max
-  let opt = the_range.convert(::std::u32::MAX);
-  match opt {
-    Some(roll) => outputs[roll as usize] += 1,
-    None => outputs[0] += 1,
-  };
-  assert!(outputs[0] < 6);
-  let ones = outputs[1];
-  assert_eq!(ones, outputs[2], "{:?}", outputs);
-  assert_eq!(ones, outputs[3], "{:?}", outputs);
-  assert_eq!(ones, outputs[4], "{:?}", outputs);
-  assert_eq!(ones, outputs[5], "{:?}", outputs);
-  assert_eq!(ones, outputs[6], "{:?}", outputs);
-}
-
-pub fn u64_from_time() -> u64 {
-  use std::time::{SystemTime, UNIX_EPOCH};
-  let the_duration = match SystemTime::now().duration_since(UNIX_EPOCH) {
-    Ok(duration) => duration,
-    Err(system_time_error) => system_time_error.duration(),
-  };
-  if the_duration.subsec_nanos() != 0 {
-    the_duration.as_secs().wrapping_mul(the_duration.subsec_nanos() as u64)
-  } else {
-    the_duration.as_secs()
+    // End Phase, we clear any dead NPCs off the list.
+    let creature_locations_mut = &mut self.creature_locations;
+    self.creature_list.retain(|creature_ref| {
+      let keep = creature_ref.hit_points > 0 || creature_ref.is_the_player;
+      if !keep {
+        let dead_location = *creature_locations_mut
+          .iter()
+          .find(|&(_, v_cid)| v_cid == &creature_ref.id)
+          .expect("Locations list out of sync!")
+          .0;
+        creature_locations_mut.remove(&dead_location);
+      };
+      keep
+    });
   }
 }

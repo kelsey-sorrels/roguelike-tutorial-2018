@@ -11,6 +11,7 @@ use roguelike_tutorial_2018::*;
 
 // std
 use std::collections::hash_set::*;
+use std::io::*;
 
 const TILE_GRID_WIDTH: usize = 66;
 const TILE_GRID_HEIGHT: usize = 50;
@@ -85,7 +86,11 @@ fn main() {
         x: (fgs.width() / 2) as i32,
         y: (fgs.height() / 2) as i32,
       };
-      for (scr_x, scr_y, id_mut) in ids.iter_mut() {
+      // draw the map, save space for the status line.
+      const STATUS_HEIGHT: usize = 1;
+      let full_extent = (ids.width(), ids.height());
+      let map_view_end = (full_extent.0, full_extent.1 - STATUS_HEIGHT);
+      for (scr_x, scr_y, id_mut) in ids.slice_mut((0, 0)..map_view_end).iter_mut() {
         let loc_for_this_screen_position = Location {
           x: scr_x as i32,
           y: scr_y as i32,
@@ -119,6 +124,20 @@ fn main() {
           *id_mut = b' ';
         }
       }
+      // draw the status bar.
+      let mut ids_status_slice_mut = ids.slice_mut((0, map_view_end.1)..full_extent);
+      debug_assert_eq!(ids_status_slice_mut.width(), full_extent.0);
+      debug_assert_eq!(ids_status_slice_mut.height(), STATUS_HEIGHT);
+      ids_status_slice_mut.set_all(0);
+      debug_assert_eq!(1, STATUS_HEIGHT);
+      let mut status_line_u8_slice_mut: &mut [u8] = unsafe { ::std::slice::from_raw_parts_mut(ids_status_slice_mut.as_mut_ptr(), full_extent.0) };
+      let player_hp = game
+        .creature_list
+        .iter()
+        .find(|creature_ref| creature_ref.is_the_player)
+        .unwrap()
+        .hit_points;
+      write!(status_line_u8_slice_mut, "HP: {}, Enemies: {}", player_hp, game.creature_list.len() - 1).ok();
     }
 
     unsafe {
