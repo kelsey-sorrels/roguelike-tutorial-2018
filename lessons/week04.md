@@ -567,7 +567,7 @@ the monster takes a step like this:
 
 So it seems easy to change how we pick the `move_target` value. We'll just make
 a path, throw in a double check that the 0th index is our current spot (which is
-_I think_ how the paths we get pack work), and then pick the 1st index to move
+_I think_ how the paths we get back work), and then pick the 1st index to move
 to.
 
 ```rust
