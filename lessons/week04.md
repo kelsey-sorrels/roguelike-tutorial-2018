@@ -1349,7 +1349,8 @@ put this at the top of our file and...
 #![feature(nll)]
 ```
 
-Welp, we're back to being nightly only I guess, `*edits readme*`.
+Welp, that works, which means we're once again back to being nightly only I
+guess, `*edits readme*`.
 
 So now we know the `CreatureID` of who we want to attack. This is one of those
 situations where we have to futz with the player's entry in the creature list
