@@ -11,12 +11,12 @@ compute a path for them to follow.
 We're going to use stuff based on [A*
 pathing](https://en.wikipedia.org/wiki/A*_search_algorithm) (pronounced
 "A-star") because it's easy to write and it's the basic stuff. However, as with
-the PRNG stuff from earlier, once you understand the basics of pathing and A*
+the PRNG topic from week 2, once you understand the basics of pathing and A*
 you can more easily use additional techniques such as [Djikstra
 maps](http://www.roguebasin.com/index.php?title=The_Incredible_Power_of_Dijkstra_Maps)
 and [JPS
 pathing](https://www.gdcvault.com/play/1022094/JPS-Over-100x-Faster-than). They
-pre-compute more stuff ahead of time to make each path faster to compute during
+pre-compute more data ahead of time to make each path faster to compute during
 the actual level's usage. The most classic of trade offs.
 
 Thankfully, as with before, we just gotta read the wikipedia article to find out
