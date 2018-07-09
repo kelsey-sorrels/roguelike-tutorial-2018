@@ -1559,6 +1559,8 @@ everything.
       write!(status_line_u8_slice_mut, "HP: {}, Enemies: {}", player_hp, game.creature_list.len() - 1).ok();
 ```
 
+![game-working](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week04-02.png)
+
 Anyway, that's it for this week I think. I did all of this in one big marathon,
 OBS says that I was live for about 7h:40m. It'll probably take you a lot less
 time than that to read it I hope.
