@@ -22,7 +22,7 @@ the actual level's usage. The most classic of trade offs.
 Thankfully, as with before, we just gotta read the wikipedia article to find out
 how this works. Turns out it was invented to help a _robot friend_. This buddy:
 
-![image](https://en.wikipedia.org/wiki/A*_search_algorithm#/media/File:SRI_Shakey_with_callouts.jpg)
+![image](https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/SRI_Shakey_with_callouts.jpg/377px-SRI_Shakey_with_callouts.jpg)
 
 Look at that pal. Adorable.
 
