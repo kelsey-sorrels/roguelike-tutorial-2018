@@ -20,6 +20,12 @@ pub use prng::*;
 pub const WALL_TILE: u8 = 13 * 16 + 11;
 pub const TERULO_BROWN: u32 = rgb32!(197, 139, 5);
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum Item {
+  PotionHealth,
+  PotionStrength,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default, Hash)]
 pub struct Location {
   pub x: i32,
@@ -102,6 +108,7 @@ pub struct Creature {
   pub id: CreatureID,
   pub hit_points: i32,
   pub damage_step: i32,
+  pub inventory: Vec<Item>,
 }
 impl Creature {
   fn new(icon: u8, color: u32) -> Self {
@@ -112,6 +119,7 @@ impl Creature {
       id: CreatureID::atomic_new(),
       hit_points: 10,
       damage_step: 5,
+      inventory: vec![],
     }
   }
 }
@@ -251,6 +259,7 @@ pub struct GameWorld {
   pub player_location: Location,
   pub creature_list: Vec<Creature>,
   pub creature_locations: HashMap<Location, CreatureID>,
+  pub item_locations: HashMap<Location, Vec<Item>>,
   pub terrain: HashMap<Location, Terrain>,
   pub gen: PCG32,
 }
@@ -261,6 +270,7 @@ impl GameWorld {
       player_location: Location { x: 5, y: 5 },
       creature_list: vec![],
       creature_locations: HashMap::new(),
+      item_locations: HashMap::new(),
       terrain: HashMap::new(),
       gen: PCG32::new(seed),
     };
