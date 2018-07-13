@@ -11,18 +11,18 @@ compute a path for them to follow.
 We're going to use stuff based on [A*
 pathing](https://en.wikipedia.org/wiki/A*_search_algorithm) (pronounced
 "A-star") because it's easy to write and it's the basic stuff. However, as with
-the PRNG stuff from earlier, once you understand the basics of pathing and A*
+the PRNG topic from week 2, once you understand the basics of pathing and A*
 you can more easily use additional techniques such as [Djikstra
 maps](http://www.roguebasin.com/index.php?title=The_Incredible_Power_of_Dijkstra_Maps)
 and [JPS
 pathing](https://www.gdcvault.com/play/1022094/JPS-Over-100x-Faster-than). They
-pre-compute more stuff ahead of time to make each path faster to compute during
+pre-compute more data ahead of time to make each path faster to compute during
 the actual level's usage. The most classic of trade offs.
 
 Thankfully, as with before, we just gotta read the wikipedia article to find out
 how this works. Turns out it was invented to help a _robot friend_. This buddy:
 
-![image](https://en.wikipedia.org/wiki/A*_search_algorithm#/media/File:SRI_Shakey_with_callouts.jpg)
+![image](https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/SRI_Shakey_with_callouts.jpg/377px-SRI_Shakey_with_callouts.jpg)
 
 Look at that pal. Adorable.
 
@@ -549,7 +549,7 @@ know what type we want for that. The fix is that we need to specify the type of
   g_score.insert(start, 0i32);
 ```
 
-Okay now well... oh, we're out of `unimplemented!()` uses. I guess we're done.
+Okay now we... oh, we're out of `unimplemented!()` uses. I guess we're done.
 So... right, we just need to call this code. First we'll make all the monsters
 magically know where the hero is and path toward them. Remember that right now
 the monster takes a step like this:
@@ -567,7 +567,7 @@ the monster takes a step like this:
 
 So it seems easy to change how we pick the `move_target` value. We'll just make
 a path, throw in a double check that the 0th index is our current spot (which is
-_I think_ how the paths we get pack work), and then pick the 1st index to move
+_I think_ how the paths we get back work), and then pick the 1st index to move
 to.
 
 ```rust
@@ -576,7 +576,7 @@ to.
             let move_target = path[1];
 ```
 
-Okay, so, now every single turn every player in the game will move towards the
+Okay, so, now every single turn every creature in the game will move towards the
 player as best as it can, from an unlimited distance away. This will be... not
 fast. A* is not cheap as your search space goes up, and we've got a sizable map.
 The final game won't have enemies pathing from unlimited distance though, and if
@@ -792,10 +792,17 @@ Now we can actually, you know, add fighting.
 
 Time to add some combat!
 
-**So, what's our combat system?** Some sort of vaguely d20 thing? Roll 1d20+Atk
->= Target.AC to hit, and then 1d6 for damage off of their HP? We've seen it a
-billion times. Let's try something new! We'll rip off a _different_ old RPG's
-mechanics instead of stealing from DnD.
+**So, what's our combat system?**
+
+Some sort of vaguely d20 thing? Again?
+
+```
+1d20+Atk >= Target.AC to hit
+1d6 for damage
+```
+
+We've seen it a billion times. Let's try something new! We'll rip off a
+_different_ old RPG's mechanics instead of stealing from DnD.
 
 #### Part 06b.a: Module Cleanup
 
@@ -1342,7 +1349,8 @@ put this at the top of our file and...
 #![feature(nll)]
 ```
 
-Welp, we're back to being nightly only I guess, `*edits readme*`.
+Welp, that works, which means we're once again back to being nightly only I
+guess, `*edits readme*`.
 
 So now we know the `CreatureID` of who we want to attack. This is one of those
 situations where we have to futz with the player's entry in the creature list
