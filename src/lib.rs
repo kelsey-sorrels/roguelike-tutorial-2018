@@ -18,6 +18,7 @@ pub mod prng;
 pub use prng::*;
 
 pub const WALL_TILE: u8 = 13 * 16 + 11;
+pub const POTION_GLYPH: u8 = b'!';
 pub const TERULO_BROWN: u32 = rgb32!(197, 139, 5);
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -281,6 +282,7 @@ impl GameWorld {
         .insert(Location { x: x as i32, y: y as i32 }, if *tile { Terrain::Wall } else { Terrain::Floor });
     }
 
+    // add the player
     let mut player = Creature::new(b'@', TERULO_BROWN);
     player.is_the_player = true;
     let player_start = out.pick_random_floor();
@@ -289,6 +291,7 @@ impl GameWorld {
     out.creature_locations.insert(player_start, CreatureID(player_id));
     out.player_location = player_start;
 
+    // add the enemies
     for _ in 0..50 {
       let monster = Creature::new(b'k', rgb32!(166, 0, 0));
       let monster_id = monster.id.0;
@@ -304,6 +307,17 @@ impl GameWorld {
           ve.insert(CreatureID(monster_id));
         }
       }
+    }
+
+    // add some items
+    for _ in 0..50 {
+      let item_spot = out.pick_random_floor();
+      let new_item = if (out.gen.next_u32() as i32) < 0 {
+        Item::PotionHealth
+      } else {
+        Item::PotionStrength
+      };
+      out.item_locations.entry(item_spot).or_insert(Vec::new()).push(new_item);
     }
 
     out
@@ -359,6 +373,15 @@ impl GameWorld {
             let old_creature = self.creature_locations.insert(player_move_target, player_id);
             debug_assert!(old_creature.is_none());
             self.player_location = player_move_target;
+            // grab items that are here, if any
+            let player_id_ref = self.creature_locations.get(&self.player_location).unwrap();
+            let player_mut = self
+              .creature_list
+              .iter_mut()
+              .find(|creature_mut| &creature_mut.id == player_id_ref)
+              .unwrap();
+            let floor_items = self.item_locations.entry(self.player_location).or_insert(Vec::new());
+            player_mut.inventory.append(floor_items);
           }
         }
       }

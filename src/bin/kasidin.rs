@@ -95,7 +95,7 @@ fn main() {
           x: scr_x as i32,
           y: scr_y as i32,
         } + offset;
-        if seen_set.contains(&(loc_for_this_screen_position.x, loc_for_this_screen_position.y)) {
+        let (glyph, color) = if seen_set.contains(&(loc_for_this_screen_position.x, loc_for_this_screen_position.y)) {
           match game.creature_locations.get(&loc_for_this_screen_position) {
             Some(cid_ref) => {
               let creature_here = game
@@ -103,26 +103,27 @@ fn main() {
                 .iter()
                 .find(|&creature_ref| &creature_ref.id == cid_ref)
                 .expect("Our locations and list are out of sync!");
-              *id_mut = creature_here.icon;
-              fgs[(scr_x, scr_y)] = creature_here.color;
+              (creature_here.icon, creature_here.color)
             }
-            None => match game.terrain.get(&loc_for_this_screen_position) {
-              Some(Terrain::Wall) => {
-                *id_mut = WALL_TILE;
-                fgs[(scr_x, scr_y)] = rgb32!(155, 75, 0);
-              }
-              Some(Terrain::Floor) => {
-                *id_mut = b'.';
-                fgs[(scr_x, scr_y)] = rgb32!(128, 128, 128);
-              }
-              None => {
-                *id_mut = b' ';
-              }
+            None => match game
+              .item_locations
+              .get(&loc_for_this_screen_position)
+              .and_then(|item_vec_ref| item_vec_ref.get(0))
+            {
+              Some(Item::PotionHealth) => (POTION_GLYPH, rgb32!(250, 5, 5)),
+              Some(Item::PotionStrength) => (POTION_GLYPH, rgb32!(5, 240, 20)),
+              None => match game.terrain.get(&loc_for_this_screen_position) {
+                Some(Terrain::Wall) => (WALL_TILE, rgb32!(155, 75, 0)),
+                Some(Terrain::Floor) => (b'.', rgb32!(128, 128, 128)),
+                None => (b' ', 0),
+              },
             },
           }
         } else {
-          *id_mut = b' ';
-        }
+          (b' ', 0)
+        };
+        *id_mut = glyph;
+        fgs[(scr_x, scr_y)] = color;
       }
       // draw the status bar.
       let mut ids_status_slice_mut = ids.slice_mut((0, map_view_end.1)..full_extent);
