@@ -736,18 +736,421 @@ Of course we have to wait until Part 13 to actually _equip_ an item.
 
 Doing the tutorial out of order would simply be heretical.
 
+In other words, we're done with part 8.
+
+[current code](https://github.com/Lokathor/roguelike-tutorial-2018/tree/ec225764304f3a9c7809118d69126df217b8ad8a)
+
 ## Part 09: Ranged Attacks and Targeting
 
-TODO: Preview
+So now Kasidin needs a ranged attack. Except, they're not some sort of rogueish
+human that would use a Scroll of Lighting, they're a tough rock brother! So
+instead we'll be adding the classic weapon of the rock brothers, a Bomb! Let's
+even go for two kinds of bomb: a blast bomb (which does damage and knocks back)
+and an ice bomb (which turns squares into ice).
 
 ### Part 09.a: New Item Type (bombs)
 
-TODO: Coding
+So, we'll be adding two new items. We just stick a few new variants in our
+`Item` type, and the compiler will tell us all the stuff we need to add to
+handle it. Looks like just two things in the `lib.rs`:
 
-### Part 09.b: Equipping bombs
+```rust
+fn apply_potion(potion: &Item, target: &mut Creature, rng: &mut PCG32) {
+  match potion {
+    Item::PotionHealth => target.hit_points = (target.hit_points + step(rng, 8)).min(30),
+    Item::PotionStrength => target.damage_step += 1,
+    _ => panic!("not a potion {}", potion),
+  }
+}
 
-TODO: Coding
+impl ::std::fmt::Display for Item {
+  fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    match self {
+      Item::PotionHealth => write!(f, "Potion of Restore Health"),
+      Item::PotionStrength => write!(f, "Potion of Gain Strength"),
+      Item::BombBlast => write!(f, "Blast Bomb"),
+      Item::BombIce => write!(f, "Ice Bomb"),
+    }
+  }
+}
+```
 
-### Part 09.c: Throwing a bomb
+and one thing in `bin/kasidin.rs`
 
-TODO: Coding
+```rust
+          Some(Item::PotionHealth) => (POTION_GLYPH, rgb32!(250, 5, 5)),
+          Some(Item::PotionStrength) => (POTION_GLYPH, rgb32!(5, 240, 20)),
+          Some(Item::BombBlast) => (BOMB_GLYPH, rgb32!(127, 127, 127)),
+          Some(Item::BombIce) => (BOMB_GLYPH, rgb32!(153, 217, 234)),
+          None => match game.terrain.get(&loc_for_this_screen_position) {
+            Some(Terrain::Wall) => (WALL_TILE, rgb32!(155, 75, 0)),
+            Some(Terrain::Floor) => (b'.', rgb32!(128, 128, 128)),
+            None => (b' ', 0),
+          },
+```
+
+And we add a pile of bombs all around the map for the player to find.
+
+```rust
+    // add some items
+    for _ in 0..100 {
+      let item_spot = out.pick_random_floor();
+      let new_item = match out.gen.next_u32() >> 30 {
+        0 => Item::PotionHealth,
+        1 => Item::PotionStrength,
+        2 => Item::BombBlast,
+        3 => Item::BombIce,
+        _ => unreachable!(),
+      };
+      out.item_locations.entry(item_spot).or_insert(Vec::new()).push(new_item);
+    }
+```
+
+And now you can hold bombs.
+
+![bomb-inventory](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week05-05.png)
+
+And they look kinda neat out on the field too. When I picked out a bomb glyph I
+also noticed a better potion glyph, which you can also see here.
+
+![bomb-game](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week05-06.png)
+
+Except if you try to "use" a bomb you get a panic because right now the item use
+code assumes that you only have potions:
+
+```
+thread 'main' panicked at 'not a potion Blast Bomb', src\lib.rs:40:10
+note: Run with `RUST_BACKTRACE=1` for a backtrace.
+error: process didn't exit successfully: `target\debug\kasidin.exe` (exit code: 101)
+```
+
+### Part 09.b: Throwing a bomb
+
+Okay, so we're holding bombs, now we need to throw a bomb.
+
+What's that user experience like? Well, I _think_ that it's something like you
+press `i`, then `a` (or whatever inventory letter) and then you go into a
+targeting mode where you move an indicator, and then you press `enter` to
+confirm or `escape` to cancel the selection.
+
+Just one problem, we tell the game that we wanna use item `letter` and then it
+gives us a `bool` for if the item was used. There's no place to pass the
+targeting data! What do we do? Let's re-examine `use_item`
+
+```rust
+// impl GameWorld in lib.rs
+  pub fn use_item(&mut self, item_letter: char) -> bool {
+    let player_mut = self.creature_list.iter_mut().find(|creature_ref| creature_ref.is_the_player).unwrap();
+    let item_to_use = {
+      let mut cataloged_inventory = BTreeMap::new();
+      for item_ref in player_mut.inventory.iter() {
+        *cataloged_inventory.entry(item_ref).or_insert(0) += 1;
+      }
+      let letter_index = item_letter as u8 - 'a' as u8;
+      cataloged_inventory.into_iter().nth(letter_index as usize).map(|(&item, _count)| item)
+    };
+    match item_to_use {
+      Some(item) => {
+        apply_potion(&item, player_mut, &mut self.gen);
+        for i in 0..player_mut.inventory.len() {
+          if player_mut.inventory[i] == item {
+            player_mut.inventory.remove(i);
+            break;
+          }
+        }
+        true
+      }
+      None => false,
+    }
+  }
+```
+
+Well _frill me right into the uncharted territories_, we don't even have the
+game running a turn once an item is used at the moment. That's dumb.
+
+```rust
+        for i in 0..player_mut.inventory.len() {
+          if player_mut.inventory[i] == item {
+            player_mut.inventory.remove(i);
+            break;
+          }
+        }
+        self.run_world_turn(); // oh my!
+        true
+```
+
+There we go.
+
+Okay so what do we do about the targeting? Well, right now that `bool` is
+_kinda_ supposed to be returning if you should stay on the inventory screen or
+not. Right? Here's where we use it.
+
+```rust
+// bin/kasidin.rs
+        DisplayMode::Inventory => match key {
+          VirtualKeyCode::Escape => display_mode = DisplayMode::Game,
+          other => {
+            letter_of(other).map(|ch| {
+              if ch.is_alphabetic() && game.use_item(ch) {
+                display_mode = DisplayMode::Game;
+              }
+            });
+          }
+        },
+```
+
+So yeah, once a letter is selected we call `use_item` and if that's true then we
+switch the display mode to Game. All we gotta do is give back a better type with
+more info to it.
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UseItemResult {
+  ItemUsed,
+  ItemNeedsTarget,
+  NoSuchItem,
+}
+```
+
+And then we make use of this new type
+
+```rust
+  pub fn use_item(&mut self, item_letter: char) -> UseItemResult {
+    let player_mut = self.creature_list.iter_mut().find(|creature_ref| creature_ref.is_the_player).unwrap();
+    let item_to_use = {
+      let mut cataloged_inventory = BTreeMap::new();
+      for item_ref in player_mut.inventory.iter() {
+        *cataloged_inventory.entry(item_ref).or_insert(0) += 1;
+      }
+      let letter_index = item_letter as u8 - 'a' as u8;
+      cataloged_inventory.into_iter().nth(letter_index as usize).map(|(&item, _count)| item)
+    };
+    match item_to_use {
+      Some(item) => {
+        if item.is_potion() {
+          apply_potion(&item, player_mut, &mut self.gen);
+          for i in 0..player_mut.inventory.len() {
+            if player_mut.inventory[i] == item {
+              player_mut.inventory.remove(i);
+              break;
+            }
+          }
+          self.run_world_turn();
+          UseItemResult::ItemUsed
+        } else {
+          UseItemResult::ItemNeedsTarget
+        }
+      }
+      None => UseItemResult::NoSuchItem,
+    }
+  }
+```
+
+So then if we get `NoSuchItem` back we want to transition to the targeting
+screen instead. However, unlike previous DisplayMode values that don't have any
+bonus info, we also store the letter that we've got input so far, and a delta
+for how offset from the player the current targeting is.
+
+```rust
+        DisplayMode::Inventory => match key {
+          VirtualKeyCode::Escape => display_mode = DisplayMode::Game,
+          other => {
+            letter_of(other).map(|ch| {
+              if ch.is_alphabetic() {
+                match game.use_item(ch) {
+                  UseItemResult::NoSuchItem => {}
+                  UseItemResult::ItemUsed => {
+                    display_mode = DisplayMode::Game;
+                  }
+                  UseItemResult::ItemNeedsTarget => {
+                    display_mode = DisplayMode::ItemTargeting(ch, Location { x: 0, y: 0 });
+                  }
+                }
+              }
+            });
+          }
+        },
+```
+
+And we add key some initial key handling for the new display mode
+
+```rust
+        DisplayMode::ItemTargeting(letter, delta) => match key {
+          VirtualKeyCode::Escape => display_mode = DisplayMode::Game,
+          VirtualKeyCode::Up | VirtualKeyCode::Down | VirtualKeyCode::Left | VirtualKeyCode::Right => {
+            let delta_change = match key {
+              VirtualKeyCode::Up => Location { x: 0, y: 1 },
+              VirtualKeyCode::Down => Location { x: 0, y: -1 },
+              VirtualKeyCode::Left => Location { x: -1, y: 0 },
+              VirtualKeyCode::Right => Location { x: 1, y: 0 },
+              _ => unreachable!(),
+            };
+            let new_delta = delta + delta_change;
+            if seen_set.contains(&(game.player_location + new_delta)) {
+              display_mode = DisplayMode::ItemTargeting(letter, new_delta);
+            }
+          }
+          _ => {}
+        },
+```
+
+We'll move around the `seen_set` to accommodate this, but basically we're saying
+that you can only target a square if it's currently visible to you.
+
+The drawing for targeting mode is actually quite uninteresting. We just steal
+the part form the Inventory where we draw a message at the top, and then we
+steal the part from the normal game display where we draw all sorts of stuff in
+everything-but-the-top. And we also track where the targeted square is and have
+one little line at the end.
+
+```rust
+    if loc_for_this_screen_position == target_delta_location {
+      const FULL_ALPHA: u32 = rgba32!(0, 0, 0, 255);
+      fgs[(scr_x, scr_y)] = !fgs[(scr_x, scr_y)] | FULL_ALPHA;
+      bgs[(scr_x, scr_y)] = !bgs[(scr_x, scr_y)] | FULL_ALPHA;
+    }
+```
+
+This inverts the color of the targeted cell, so whatever the outline is we'll
+still see the right shape, but "highlighted" compared to normal.
+
+![selecting-a-target](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week05-07.png)
+
+now we need to actually _make the bombs do something_ when you press enter.
+
+```rust
+        DisplayMode::ItemTargeting(letter, delta) => match key {
+          VirtualKeyCode::Escape => display_mode = DisplayMode::Game,
+          VirtualKeyCode::Return => {
+            game.use_targeted_item(letter, delta);
+            display_mode = DisplayMode::Game;
+          }
+          // ...
+```
+
+Then `use_targeted_item` does the same setup as `use_item`, and the interesting
+part is where the bomb effects go into place.
+
+The Blast Bomb does a strong range 2 blast.
+
+```rust
+      Some(Item::BombBlast) => {
+        let mut blast_locations = vec![];
+        let blast_center = self.player_location + target_delta;
+        ppfov(
+          (blast_center.x, blast_center.y),
+          2,
+          |x, y| self.terrain[&Location { x, y }] == Terrain::Wall,
+          |x, y| blast_locations.push(Location { x, y }),
+        );
+        let blast_targets: Vec<CreatureID> = blast_locations
+          .into_iter()
+          .filter_map(|loc| self.creature_locations.get(&loc).map(|cid_ref| CreatureID(cid_ref.0)))
+          .collect();
+        for creature_mut in self.creature_list.iter_mut() {
+          if blast_targets.contains(&creature_mut.id) {
+            creature_mut.hit_points -= step(&mut self.gen, 10);
+          }
+        }
+      }
+```
+
+And the Ice Bomb does something else interesting: it transmutes floor within
+range 1 into ice. Creatures in the area (other than the player) are instantly
+killed.
+
+```rust
+      Some(Item::BombIce) => {
+        let mut blast_locations = vec![];
+        let blast_center = self.player_location + target_delta;
+        ppfov(
+          (blast_center.x, blast_center.y),
+          1,
+          |_, _| false, /* vision check doesn't matter on radius 1 fov */
+          |x, y| blast_locations.push(Location { x, y }),
+        );
+        for location in blast_locations.into_iter() {
+          if *self.terrain.entry(location).or_insert(Terrain::Wall) == Terrain::Floor {
+            *self.terrain.entry(location).or_insert(Terrain::Wall) = Terrain::Ice;
+            let removed_cid = self.creature_locations.remove(&location);
+            // this is a hacky way to never delete the player on accident, but
+            // not really any _more_ hacky than the rest of the codebase.
+            removed_cid.map(|cid_ref| {
+              if cid_ref.0 > 1 {
+                self.creature_list.retain(|creature_ref| &creature_ref.id != &cid_ref);
+              } else {
+                self.creature_locations.insert(location, CreatureID(cid_ref.0));
+              }
+            });
+          }
+        }
+      }
+```
+
+And, ya know, just for more fun, we'll make blast bombs shatter the ice too.
+
+```rust
+        let mut blast_targets = vec![];
+        for location in blast_locations.into_iter() {
+          if *self.terrain.entry(location).or_insert(Terrain::Wall) == Terrain::Ice {
+            *self.terrain.entry(location).or_insert(Terrain::Wall) = Terrain::Floor;
+          }
+          match self.creature_locations.get(&location) {
+            None => {}
+            Some(cid_ref) => {
+              blast_targets.push(CreatureID(cid_ref.0));
+            }
+          }
+        }
+```
+
+![ice-and-bombs](https://github.com/Lokathor/roguelike-tutorial-2018/blob/master/screenshots/week05-08.png)
+
+The last thing to change is that Ice should probably block FOV. We have to
+update once in the monster FOV code.
+
+```rust
+            ppfov(
+              (loc.x, loc.y),
+              7,
+              |x, y| {
+                let here = *terrain_ref.get(&Location { x, y }).unwrap_or(&Terrain::Wall);
+                here == Terrain::Wall || here == Terrain::Ice
+              },
+              |x, y| {
+                seen_locations.insert(Location { x, y });
+              },
+            );
+```
+
+And once in the player's FOV code.
+
+```rust
+    ppfov(
+      (game.player_location.x, game.player_location.y),
+      FOV_DISPLAY_RANGE,
+      |x, y| {
+        game
+          .terrain
+          .get(&Location { x, y })
+          .map(|&t| t == Terrain::Wall || t == Terrain::Ice)
+          .unwrap_or(true)
+      },
+      |x, y| drop(seen_set.insert(Location { x, y })),
+    );
+```
+
+Messy, but it works.
+
+During testing I noticed another bug of sorts though, we forgot items when
+making the ice!
+
+```rust
+            self.item_locations.entry(location).or_insert(Vec::new()).clear();
+```
+
+We also didn't remove the appropriate item from the player's inventory when a
+bomb is used. This requires a little jiggering to get all the lifetimes around,
+but it's nothing a dummy scope or two can't fix!
+
+Anyway, that's it for this week.

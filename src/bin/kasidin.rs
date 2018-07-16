@@ -22,6 +22,7 @@ const KINDA_LIME_GREEN: u32 = rgb32!(128, 255, 20);
 enum DisplayMode {
   Game,
   Inventory,
+  ItemTargeting(char, Location),
 }
 
 fn main() {
@@ -35,6 +36,7 @@ fn main() {
   let mut running = true;
   let mut pending_keys = vec![];
   let mut display_mode = DisplayMode::Game;
+  let mut seen_set = HashSet::new();
   'game: loop {
     // Grab all new presses
     term.poll_events(|event| match event {
@@ -74,27 +76,66 @@ fn main() {
           VirtualKeyCode::Escape => display_mode = DisplayMode::Game,
           other => {
             letter_of(other).map(|ch| {
-              if ch.is_alphabetic() && game.use_item(ch) {
-                display_mode = DisplayMode::Game;
+              if ch.is_alphabetic() {
+                match game.use_item(ch) {
+                  UseItemResult::NoSuchItem => {}
+                  UseItemResult::ItemUsed => {
+                    display_mode = DisplayMode::Game;
+                  }
+                  UseItemResult::ItemNeedsTarget => {
+                    display_mode = DisplayMode::ItemTargeting(ch, Location { x: 0, y: 0 });
+                  }
+                }
               }
             });
           }
         },
+        DisplayMode::ItemTargeting(letter, delta) => match key {
+          VirtualKeyCode::Escape => display_mode = DisplayMode::Game,
+          VirtualKeyCode::Return => {
+            game.use_targeted_item(letter, delta);
+            display_mode = DisplayMode::Game;
+          }
+          VirtualKeyCode::Up | VirtualKeyCode::Down | VirtualKeyCode::Left | VirtualKeyCode::Right => {
+            let delta_change = match key {
+              VirtualKeyCode::Up => Location { x: 0, y: 1 },
+              VirtualKeyCode::Down => Location { x: 0, y: -1 },
+              VirtualKeyCode::Left => Location { x: -1, y: 0 },
+              VirtualKeyCode::Right => Location { x: 1, y: 0 },
+              _ => unreachable!(),
+            };
+            let new_delta = delta + delta_change;
+            if seen_set.contains(&(game.player_location + new_delta)) {
+              display_mode = DisplayMode::ItemTargeting(letter, new_delta);
+            }
+          }
+          _ => {}
+        },
       }
     }
-
-    const FOV_DISPLAY_RANGE: i32 = TILE_GRID_WIDTH as i32 / 2; // assumes that the display is wider than tall
-    let mut seen_set = HashSet::new();
+    // assumes that the display is wider than tall
+    const FOV_DISPLAY_RANGE: i32 = TILE_GRID_WIDTH as i32 / 2;
+    // TODO: we should actually only adjust the seen set if the player moved. We
+    // should probably make this part of the GameWorld so that it can refresh it
+    // when necessary and then we just read that.
+    seen_set.clear();
     ppfov(
       (game.player_location.x, game.player_location.y),
       FOV_DISPLAY_RANGE,
-      |x, y| game.terrain.get(&Location { x, y }).map(|&t| t == Terrain::Wall).unwrap_or(true),
-      |x, y| drop(seen_set.insert((x, y))),
+      |x, y| {
+        game
+          .terrain
+          .get(&Location { x, y })
+          .map(|&t| t == Terrain::Wall || t == Terrain::Ice)
+          .unwrap_or(true)
+      },
+      |x, y| drop(seen_set.insert(Location { x, y })),
     );
     {
       match display_mode {
         DisplayMode::Game => draw_game(&mut term, &game, &seen_set),
         DisplayMode::Inventory => draw_inventory(&mut term, &game),
+        DisplayMode::ItemTargeting(_letter, delta) => draw_targeting(&mut term, &game, &seen_set, delta),
       }
     }
 
@@ -143,9 +184,12 @@ fn letter_of(keycode: VirtualKeyCode) -> Option<char> {
   }
 }
 
-fn draw_game(term: &mut DwarfTerm, game: &GameWorld, seen_set: &HashSet<(i32, i32)>) {
+fn draw_game(term: &mut DwarfTerm, game: &GameWorld, seen_set: &HashSet<Location>) {
   let (mut fgs, mut bgs, mut ids) = term.layer_slices_mut();
-  // we don't clear the display since we'll write to all of the display
+  // clear the display
+  fgs.set_all(rgb32!(255, 255, 255));
+  bgs.set_all(rgb32!(0, 0, 0));
+  ids.set_all(0);
 
   let offset = game.player_location - Location {
     x: (fgs.width() / 2) as i32,
@@ -160,7 +204,7 @@ fn draw_game(term: &mut DwarfTerm, game: &GameWorld, seen_set: &HashSet<(i32, i3
       x: scr_x as i32,
       y: scr_y as i32,
     } + offset;
-    let (glyph, color) = if seen_set.contains(&(loc_for_this_screen_position.x, loc_for_this_screen_position.y)) {
+    let (glyph, color) = if seen_set.contains(&loc_for_this_screen_position) {
       match game.creature_locations.get(&loc_for_this_screen_position) {
         Some(cid_ref) => {
           let creature_here = game
@@ -177,8 +221,11 @@ fn draw_game(term: &mut DwarfTerm, game: &GameWorld, seen_set: &HashSet<(i32, i3
         {
           Some(Item::PotionHealth) => (POTION_GLYPH, rgb32!(250, 5, 5)),
           Some(Item::PotionStrength) => (POTION_GLYPH, rgb32!(5, 240, 20)),
+          Some(Item::BombBlast) => (BOMB_GLYPH, rgb32!(127, 127, 127)),
+          Some(Item::BombIce) => (BOMB_GLYPH, rgb32!(153, 217, 234)),
           None => match game.terrain.get(&loc_for_this_screen_position) {
             Some(Terrain::Wall) => (WALL_TILE, rgb32!(155, 75, 0)),
+            Some(Terrain::Ice) => (WALL_TILE, rgb32!(112, 146, 190)),
             Some(Terrain::Floor) => (b'.', rgb32!(128, 128, 128)),
             None => (b' ', 0),
           },
@@ -267,5 +314,77 @@ fn draw_inventory(term: &mut DwarfTerm, game: &GameWorld) {
     let mut this_line_slice_mut: &mut [u8] =
       unsafe { ::std::slice::from_raw_parts_mut(ids.as_mut_ptr().offset(x_offset + y_offset * ids.pitch()), message.len()) };
     write!(this_line_slice_mut, "{}", message).ok();
+  }
+}
+
+fn draw_targeting(term: &mut DwarfTerm, game: &GameWorld, seen_set: &HashSet<Location>, delta: Location) {
+  let (mut fgs, mut bgs, mut ids) = term.layer_slices_mut();
+  // clear the display
+  fgs.set_all(rgb32!(255, 255, 255));
+  bgs.set_all(rgb32!(0, 0, 0));
+  ids.set_all(0);
+
+  // draw the menu title
+  {
+    let menu_title = "== Select A Target ==";
+    assert!(menu_title.len() < ids.width());
+    let x_offset = (ids.width() - menu_title.len()) as isize / 2;
+    let y_offset = (ids.height() as isize - 1) as isize;
+    let mut this_line_slice_mut: &mut [u8] =
+      unsafe { ::std::slice::from_raw_parts_mut(ids.as_mut_ptr().offset(x_offset + y_offset * ids.pitch()), menu_title.len()) };
+    write!(this_line_slice_mut, "{}", menu_title).ok();
+  }
+
+  let offset = game.player_location - Location {
+    x: (fgs.width() / 2) as i32,
+    y: (fgs.height() / 2) as i32,
+  };
+  let target_delta_location = game.player_location + delta;
+  // draw the map, save space for the status line.
+  const STATUS_HEIGHT: usize = 1;
+  let full_extent = (ids.width(), ids.height());
+  let map_view_end = (full_extent.0, full_extent.1 - STATUS_HEIGHT);
+  for (scr_x, scr_y, id_mut) in ids.slice_mut((0, 0)..map_view_end).iter_mut() {
+    let loc_for_this_screen_position = Location {
+      x: scr_x as i32,
+      y: scr_y as i32,
+    } + offset;
+    let (glyph, color) = if seen_set.contains(&loc_for_this_screen_position) {
+      match game.creature_locations.get(&loc_for_this_screen_position) {
+        Some(cid_ref) => {
+          let creature_here = game
+            .creature_list
+            .iter()
+            .find(|&creature_ref| &creature_ref.id == cid_ref)
+            .expect("Our locations and list are out of sync!");
+          (creature_here.icon, creature_here.color)
+        }
+        None => match game
+          .item_locations
+          .get(&loc_for_this_screen_position)
+          .and_then(|item_vec_ref| item_vec_ref.get(0))
+        {
+          Some(Item::PotionHealth) => (POTION_GLYPH, rgb32!(250, 5, 5)),
+          Some(Item::PotionStrength) => (POTION_GLYPH, rgb32!(5, 240, 20)),
+          Some(Item::BombBlast) => (BOMB_GLYPH, rgb32!(127, 127, 127)),
+          Some(Item::BombIce) => (BOMB_GLYPH, rgb32!(153, 217, 234)),
+          None => match game.terrain.get(&loc_for_this_screen_position) {
+            Some(Terrain::Wall) => (WALL_TILE, rgb32!(155, 75, 0)),
+            Some(Terrain::Ice) => (WALL_TILE, rgb32!(112, 146, 190)),
+            Some(Terrain::Floor) => (b'.', rgb32!(128, 128, 128)),
+            None => (b' ', 0),
+          },
+        },
+      }
+    } else {
+      (b' ', 0)
+    };
+    *id_mut = glyph;
+    fgs[(scr_x, scr_y)] = color;
+    if loc_for_this_screen_position == target_delta_location {
+      const FULL_ALPHA: u32 = rgba32!(0, 0, 0, 255);
+      fgs[(scr_x, scr_y)] = !fgs[(scr_x, scr_y)] | FULL_ALPHA;
+      bgs[(scr_x, scr_y)] = !bgs[(scr_x, scr_y)] | FULL_ALPHA;
+    }
   }
 }

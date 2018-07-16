@@ -18,8 +18,9 @@ pub use precise_permissive_fov::*;
 pub mod prng;
 pub use prng::*;
 
-pub const WALL_TILE: u8 = 13 * 16 + 11;
-pub const POTION_GLYPH: u8 = b'!';
+pub const WALL_TILE: u8 = 11 + 13 * 16;
+pub const POTION_GLYPH: u8 = 13 + 10 * 16;
+pub const BOMB_GLYPH: u8 = 15 + 0 * 16;
 
 pub const TERULO_BROWN: u32 = rgb32!(197, 139, 5);
 pub const KESTREL_RED: u32 = rgb32!(166, 0, 0);
@@ -28,12 +29,24 @@ pub const KESTREL_RED: u32 = rgb32!(166, 0, 0);
 pub enum Item {
   PotionHealth,
   PotionStrength,
+  BombBlast,
+  BombIce,
+}
+
+impl Item {
+  fn is_potion(self) -> bool {
+    match self {
+      Item::PotionHealth | Item::PotionStrength => true,
+      _ => false,
+    }
+  }
 }
 
 fn apply_potion(potion: &Item, target: &mut Creature, rng: &mut PCG32) {
   match potion {
     Item::PotionHealth => target.hit_points = (target.hit_points + step(rng, 8)).min(30),
     Item::PotionStrength => target.damage_step += 1,
+    _ => panic!("not a potion {}", potion),
   }
 }
 
@@ -42,6 +55,8 @@ impl ::std::fmt::Display for Item {
     match self {
       Item::PotionHealth => write!(f, "Potion of Restore Health"),
       Item::PotionStrength => write!(f, "Potion of Gain Strength"),
+      Item::BombBlast => write!(f, "Blast Bomb"),
+      Item::BombIce => write!(f, "Ice Bomb"),
     }
   }
 }
@@ -163,6 +178,7 @@ impl Creature {
 pub enum Terrain {
   Wall,
   Floor,
+  Ice,
 }
 
 impl Default for Terrain {
@@ -343,12 +359,14 @@ impl GameWorld {
     }
 
     // add some items
-    for _ in 0..50 {
+    for _ in 0..100 {
       let item_spot = out.pick_random_floor();
-      let new_item = if (out.gen.next_u32() as i32) < 0 {
-        Item::PotionHealth
-      } else {
-        Item::PotionStrength
+      let new_item = match out.gen.next_u32() >> 30 {
+        0 => Item::PotionHealth,
+        1 => Item::PotionStrength,
+        2 => Item::BombBlast,
+        3 => Item::BombIce,
+        _ => unreachable!(),
       };
       out.item_locations.entry(item_spot).or_insert(Vec::new()).push(new_item);
     }
@@ -394,7 +412,7 @@ impl GameWorld {
       None => {
         // no one is there, move
         match *self.terrain.entry(player_move_target).or_insert(Terrain::Floor) {
-          Terrain::Wall => {
+          Terrain::Wall | Terrain::Ice => {
             // Accidentally bumping a wall doesn't consume a turn.
             return;
           }
@@ -423,7 +441,7 @@ impl GameWorld {
     println!("turn over!");
   }
 
-  pub fn use_item(&mut self, item_letter: char) -> bool {
+  pub fn use_item(&mut self, item_letter: char) -> UseItemResult {
     let player_mut = self.creature_list.iter_mut().find(|creature_ref| creature_ref.is_the_player).unwrap();
     let item_to_use = {
       let mut cataloged_inventory = BTreeMap::new();
@@ -435,17 +453,101 @@ impl GameWorld {
     };
     match item_to_use {
       Some(item) => {
-        apply_potion(&item, player_mut, &mut self.gen);
-        for i in 0..player_mut.inventory.len() {
-          if player_mut.inventory[i] == item {
-            player_mut.inventory.remove(i);
-            break;
+        if item.is_potion() {
+          apply_potion(&item, player_mut, &mut self.gen);
+          for i in 0..player_mut.inventory.len() {
+            if player_mut.inventory[i] == item {
+              player_mut.inventory.remove(i);
+              break;
+            }
+          }
+          self.run_world_turn();
+          UseItemResult::ItemUsed
+        } else {
+          UseItemResult::ItemNeedsTarget
+        }
+      }
+      None => UseItemResult::NoSuchItem,
+    }
+  }
+
+  pub fn use_targeted_item(&mut self, item_letter: char, target_delta: Location) {
+    let item_to_use = {
+      let player_mut = self.creature_list.iter_mut().find(|creature_ref| creature_ref.is_the_player).unwrap();
+      let mut cataloged_inventory = BTreeMap::new();
+      for item_ref in player_mut.inventory.iter() {
+        *cataloged_inventory.entry(item_ref).or_insert(0) += 1;
+      }
+      let letter_index = item_letter as u8 - 'a' as u8;
+      cataloged_inventory.into_iter().nth(letter_index as usize).map(|(&item, _count)| item)
+    };
+
+    match item_to_use {
+      Some(Item::BombBlast) => {
+        let mut blast_locations = vec![];
+        let blast_center = self.player_location + target_delta;
+        ppfov(
+          (blast_center.x, blast_center.y),
+          2,
+          |x, y| self.terrain[&Location { x, y }] == Terrain::Wall,
+          |x, y| blast_locations.push(Location { x, y }),
+        );
+        let mut blast_targets = vec![];
+        for location in blast_locations.into_iter() {
+          if *self.terrain.entry(location).or_insert(Terrain::Wall) == Terrain::Ice {
+            *self.terrain.entry(location).or_insert(Terrain::Wall) = Terrain::Floor;
+          }
+          match self.creature_locations.get(&location) {
+            None => {}
+            Some(cid_ref) => {
+              blast_targets.push(CreatureID(cid_ref.0));
+            }
           }
         }
-        true
+        for creature_mut in self.creature_list.iter_mut() {
+          if blast_targets.contains(&creature_mut.id) {
+            creature_mut.hit_points -= step(&mut self.gen, 10);
+          }
+        }
       }
-      None => false,
+      Some(Item::BombIce) => {
+        let mut blast_locations = vec![];
+        let blast_center = self.player_location + target_delta;
+        ppfov(
+          (blast_center.x, blast_center.y),
+          1,
+          |_, _| false, /* vision check doesn't matter on radius 1 fov */
+          |x, y| blast_locations.push(Location { x, y }),
+        );
+        for location in blast_locations.into_iter() {
+          if *self.terrain.entry(location).or_insert(Terrain::Wall) == Terrain::Floor {
+            *self.terrain.entry(location).or_insert(Terrain::Wall) = Terrain::Ice;
+            self.item_locations.entry(location).or_insert(Vec::new()).clear();
+            let removed_cid = self.creature_locations.remove(&location);
+            // this is a hacky way to never delete the player on accident, but
+            // not really any _more_ hacky than the rest of the codebase.
+            removed_cid.map(|cid_ref| {
+              if cid_ref.0 > 1 {
+                self.creature_list.retain(|creature_ref| &creature_ref.id != &cid_ref);
+              } else {
+                self.creature_locations.insert(location, CreatureID(cid_ref.0));
+              }
+            });
+          }
+        }
+      }
+      Some(other) => panic!("Item was not an item that can target: {}", other),
+      None => panic!("No such item letter: {}", item_letter),
     }
+    let item_used = item_to_use.unwrap();
+    let player_mut = self.creature_list.iter_mut().find(|creature_ref| creature_ref.is_the_player).unwrap();
+    for i in 0..player_mut.inventory.len() {
+      if player_mut.inventory[i] == item_used {
+        player_mut.inventory.remove(i);
+        break;
+      }
+    }
+    self.run_world_turn();
   }
 
   pub fn run_world_turn(&mut self) {
@@ -478,7 +580,10 @@ impl GameWorld {
             ppfov(
               (loc.x, loc.y),
               7,
-              |x, y| terrain_ref.get(&Location { x, y }).unwrap_or(&Terrain::Wall) == &Terrain::Wall,
+              |x, y| {
+                let here = *terrain_ref.get(&Location { x, y }).unwrap_or(&Terrain::Wall);
+                here == Terrain::Wall || here == Terrain::Ice
+              },
               |x, y| {
                 seen_locations.insert(Location { x, y });
               },
@@ -526,7 +631,7 @@ impl GameWorld {
               // TODO: log that we did damage.
             }
             None => match *self.terrain.entry(move_target).or_insert(Terrain::Floor) {
-              Terrain::Wall => {
+              Terrain::Wall | Terrain::Ice => {
                 continue;
               }
               Terrain::Floor => {
@@ -554,4 +659,11 @@ impl GameWorld {
       keep
     });
   }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UseItemResult {
+  ItemUsed,
+  ItemNeedsTarget,
+  NoSuchItem,
 }
