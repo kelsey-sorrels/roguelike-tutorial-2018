@@ -16,7 +16,7 @@ pub fn u64_from_time() -> u64 {
 }
 
 /// Rolls a step roll, according to the 4th edition chart.
-pub fn step4(gen: &mut PCG32, mut step: i32) -> i32 {
+pub fn step(gen: &mut PCG32, mut step: i32) -> i32 {
   if step < 1 {
     0
   } else {

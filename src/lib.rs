@@ -7,6 +7,7 @@ pub(crate) use dwarf_term::*;
 // std
 pub(crate) use std::collections::hash_map::*;
 pub(crate) use std::collections::hash_set::*;
+pub(crate) use std::collections::BTreeMap;
 pub(crate) use std::ops::*;
 pub(crate) use std::sync::atomic::*;
 
@@ -19,12 +20,30 @@ pub use prng::*;
 
 pub const WALL_TILE: u8 = 13 * 16 + 11;
 pub const POTION_GLYPH: u8 = b'!';
-pub const TERULO_BROWN: u32 = rgb32!(197, 139, 5);
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+pub const TERULO_BROWN: u32 = rgb32!(197, 139, 5);
+pub const KESTREL_RED: u32 = rgb32!(166, 0, 0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Item {
   PotionHealth,
   PotionStrength,
+}
+
+fn apply_potion(potion: &Item, target: &mut Creature, rng: &mut PCG32) {
+  match potion {
+    Item::PotionHealth => target.hit_points = (target.hit_points + step(rng, 8)).min(30),
+    Item::PotionStrength => target.damage_step += 1,
+  }
+}
+
+impl ::std::fmt::Display for Item {
+  fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    match self {
+      Item::PotionHealth => write!(f, "Potion of Restore Health"),
+      Item::PotionStrength => write!(f, "Potion of Gain Strength"),
+    }
+  }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default, Hash)]
@@ -118,10 +137,25 @@ impl Creature {
       color,
       is_the_player: false,
       id: CreatureID::atomic_new(),
-      hit_points: 10,
-      damage_step: 5,
+      hit_points: 1,
+      damage_step: 1,
       inventory: vec![],
     }
+  }
+
+  fn new_player() -> Self {
+    let mut out = Self::new(b'@', TERULO_BROWN);
+    out.is_the_player = true;
+    out.hit_points = 20;
+    out.damage_step = 5;
+    out
+  }
+
+  fn new_kestrel() -> Self {
+    let mut out = Self::new(b'k', KESTREL_RED);
+    out.hit_points = 8;
+    out.damage_step = 3;
+    out
   }
 }
 
@@ -283,8 +317,7 @@ impl GameWorld {
     }
 
     // add the player
-    let mut player = Creature::new(b'@', TERULO_BROWN);
-    player.is_the_player = true;
+    let mut player = Creature::new_player();
     let player_start = out.pick_random_floor();
     let player_id = player.id.0;
     out.creature_list.push(player);
@@ -293,7 +326,7 @@ impl GameWorld {
 
     // add the enemies
     for _ in 0..50 {
-      let monster = Creature::new(b'k', rgb32!(166, 0, 0));
+      let monster = Creature::new_kestrel();
       let monster_id = monster.id.0;
       let monster_start = out.pick_random_floor();
       match out.creature_locations.entry(monster_start) {
@@ -348,7 +381,7 @@ impl GameWorld {
         let player_damage_roll = {
           let player_id_ref = self.creature_locations.get(&self.player_location).unwrap();
           let player_ref = self.creature_list.iter().find(|creature_ref| &creature_ref.id == player_id_ref).unwrap();
-          step4(&mut self.gen, player_ref.damage_step)
+          step(&mut self.gen, player_ref.damage_step)
         };
         let target_ref_mut = self
           .creature_list
@@ -388,6 +421,31 @@ impl GameWorld {
     }
     self.run_world_turn();
     println!("turn over!");
+  }
+
+  pub fn use_item(&mut self, item_letter: char) -> bool {
+    let player_mut = self.creature_list.iter_mut().find(|creature_ref| creature_ref.is_the_player).unwrap();
+    let item_to_use = {
+      let mut cataloged_inventory = BTreeMap::new();
+      for item_ref in player_mut.inventory.iter() {
+        *cataloged_inventory.entry(item_ref).or_insert(0) += 1;
+      }
+      let letter_index = item_letter as u8 - 'a' as u8;
+      cataloged_inventory.into_iter().nth(letter_index as usize).map(|(&item, _count)| item)
+    };
+    match item_to_use {
+      Some(item) => {
+        apply_potion(&item, player_mut, &mut self.gen);
+        for i in 0..player_mut.inventory.len() {
+          if player_mut.inventory[i] == item {
+            player_mut.inventory.remove(i);
+            break;
+          }
+        }
+        true
+      }
+      None => false,
+    }
   }
 
   pub fn run_world_turn(&mut self) {
@@ -454,7 +512,7 @@ impl GameWorld {
                   .iter()
                   .find(|creature_ref| &creature_ref.id == creature_id_ref)
                   .unwrap();
-                step4(&mut self.gen, creature_ref.damage_step)
+                step(&mut self.gen, creature_ref.damage_step)
               };
               let target_ref_mut = self
                 .creature_list
